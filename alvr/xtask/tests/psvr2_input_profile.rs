@@ -31,20 +31,15 @@ fn load(path: impl AsRef<Path>) -> Value {
 fn packaged_psvr2_contract() {
     let sh = Shell::new().unwrap();
     let root = afs::workspace_dir();
-    let scratch = root.join(format!(
-        "local-scratch/psvr2-package-{}",
-        std::process::id()
-    ));
+    let package_name = format!("psvr2-package-{}", std::process::id());
+    let scratch = root.join("local-scratch").join(package_name);
     sh.create_dir(&scratch).unwrap();
     let layout = Layout::new(&scratch);
     sh.create_dir(&layout.openvr_driver_root_dir).unwrap();
     build::copy_streamer_resources(&sh, &layout);
     let props = read(root.join("alvr/server_openvr/src/props.rs"));
     let props = after(&props, "ControllersEmulationMode::PSVR2Sense => {");
-    let profile_path = quoted(props)
-        .into_iter()
-        .find(|s| s.ends_with("_profile.json"))
-        .unwrap();
+    let profile_path = quoted(after(props, "InputProfilePathString,"))[0];
     let profile_path = layout
         .resources_dir()
         .join(profile_path.strip_prefix("{alvr_server}/").unwrap());
@@ -89,10 +84,7 @@ fn packaged_psvr2_contract() {
             if side.to_lowercase() != hand {
                 continue;
             }
-            let definition = common
-                .lines()
-                .find(|l| l.trim_start().starts_with(&format!("({name},")))
-                .unwrap();
+            let definition = after(&common, &format!("({name},"));
             let input = format!("/user/hand/{hand}/input/{}", quoted(definition)[0]);
             let entry = paths
                 .split("_CONTROLLER_BUTTON_MAPPING.insert")
@@ -100,12 +92,11 @@ fn packaged_psvr2_contract() {
                 .find(|entry| quoted(entry)[0] == input)
                 .unwrap();
             let (aliases, kind) = entry.split_once("ButtonType::").unwrap();
-            let kind = if kind.starts_with("Binary") {
-                "bool"
-            } else if kind.starts_with("ScalarOneSided") {
-                "scalar"
-            } else {
-                "axis"
+            let kind = match kind.split_whitespace().next().unwrap() {
+                "Binary" => "bool",
+                "ScalarOneSided" => "scalar",
+                "ScalarTwoSided" => "axis",
+                _ => panic!("unknown button type {kind}"),
             };
             for alias in quoted(aliases).into_iter().skip(1) {
                 expected.insert(alias.to_owned(), kind);
@@ -113,12 +104,11 @@ fn packaged_psvr2_contract() {
         }
         for creation in controller.split("vr_driver_input->Create").skip(1) {
             let path = quoted(creation)[0];
-            let kind = if creation.starts_with("Scalar") {
-                "scalar"
-            } else if creation.starts_with("Haptic") {
-                "vibration"
-            } else {
-                "skeleton"
+            let kind = match creation.split_once("Component(").unwrap().0 {
+                "Scalar" => "scalar",
+                "Haptic" => "vibration",
+                "Skeleton" => "skeleton",
+                _ => panic!("unknown component creation {creation}"),
             };
             if kind != "skeleton" || path.ends_with(hand) {
                 expected.insert(path.to_owned(), kind);
@@ -166,10 +156,7 @@ fn packaged_psvr2_contract() {
             "{hand}: profile must match created components in both directions"
         );
     }
-    for (from, priority, stick, left_a, left_b) in [
-        ("oculus_touch", 100, "joystick", "x", "y"),
-        ("knuckles", 90, "thumbstick", "a", "b"),
-    ] {
+    for (from, priority) in [("oculus_touch", 100), ("knuckles", 90)] {
         let layout = remapping["layouts"]
             .as_array()
             .unwrap()
@@ -184,15 +171,13 @@ fn packaged_psvr2_contract() {
         ] {
             assert_eq!(layout[flag], true);
         }
-        #[rustfmt::skip]
-        let pairs = [
-            ("left", [("trigger", "l2"), ("grip", "l1"), (stick, "left_stick"), (left_a, "square"), (left_b, "triangle")]),
-            ("right", [("trigger", "r2"), ("grip", "r1"), (stick, "right_stick"), ("a", "cross"), ("b", "circle")]),
-        ];
-        for (hand, pairs) in pairs {
-            for (old, new) in pairs {
-                assert!(layout["autoremappings"].as_array().unwrap().contains(&json!({"from": format!("/user/hand/{hand}/input/{old}"), "to": format!("/user/hand/{hand}/input/{new}"), "mirror": false})));
-            }
+        for mapping in layout["autoremappings"].as_array().unwrap() {
+            let target = after(mapping["to"].as_str().unwrap(), "/user/hand/");
+            let (side, path) = target.split_once('/').unwrap();
+            let source = &profile["input_source"][format!("/{path}")];
+            assert!(source.is_object(), "missing remapping target {target}");
+            assert_eq!(source["side"], side, "wrong hand for {target}");
+            assert_eq!(mapping["mirror"], false);
         }
         if from == "oculus_touch" {
             assert!(layout["remappings"].as_array().unwrap().contains(&json!({

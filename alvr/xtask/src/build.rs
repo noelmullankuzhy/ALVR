@@ -271,6 +271,12 @@ pub fn copy_streamer_resources(sh: &Shell, build_layout: &Layout) {
         build_layout.openvr_driver_manifest(),
     )
     .unwrap();
+    command::copy_recursive(
+        sh,
+        &afs::crate_dir("xtask").join("resources/input"),
+        &build_layout.resources_dir().join("input"),
+    )
+    .unwrap();
 }
 
 pub fn build_launcher(profile: Profile, reproducible: bool) {
