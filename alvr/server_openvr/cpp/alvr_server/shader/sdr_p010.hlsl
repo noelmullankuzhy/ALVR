@@ -36,6 +36,7 @@ PS_OUTPUT main(float4 position : SV_POSITION) {
 
     // Each UV texel covers a centered 2x2 block. Average in nonlinear RGB
     // before the linear YCbCr matrix (equivalent to averaging chroma).
+    // HEVC VUI signals Annex E type 1: (0.5, 0.5) relative to top-left luma.
     int2 p = pos * 2;
     float3 rgb = (ReadSrgb(p) + ReadSrgb(p + int2(1, 0))
         + ReadSrgb(p + int2(0, 1)) + ReadSrgb(p + int2(1, 1))) * 0.25;

@@ -359,6 +359,13 @@ void VideoEncoderNVENC::FillEncodeConfig(
             config.hevcVUIParameters.transferCharacteristics
                 = NV_ENC_VUI_TRANSFER_CHARACTERISTIC_SRGB;
             config.hevcVUIParameters.colourMatrix = NV_ENC_VUI_MATRIX_COEFFS_BT709;
+            if (Settings::Instance().m_use10bitEncoder) {
+                // sdr_p010.hlsl averages 2x2: H.265 Annex E, Figure E.1 type 1
+                // is centred horizontally and vertically. Progressive fields agree.
+                config.hevcVUIParameters.chromaSampleLocationFlag = 1;
+                config.hevcVUIParameters.chromaSampleLocationTop = 1;
+                config.hevcVUIParameters.chromaSampleLocationBot = 1;
+            }
         }
     } break;
     case ALVR_CODEC_AV1: {

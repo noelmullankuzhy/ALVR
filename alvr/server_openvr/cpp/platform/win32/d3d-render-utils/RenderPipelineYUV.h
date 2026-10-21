@@ -41,6 +41,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Device> mDevice;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> mImmediateContext;
     std::vector<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>> mInputTextureViews;
+    std::vector<ID3D11ShaderResourceView*> mInputTextureViewPtrs;
     Microsoft::WRL::ComPtr<ID3D11RasterizerState> mRasterizerState;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> mRenderTargetViewY;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> mRenderTargetViewUV;

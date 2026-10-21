@@ -17,13 +17,15 @@ void RenderPipelineYUV::Initialize(
     ID3D11Buffer* shaderBuffer
 ) {
     mInputTextureViews.clear();
+    mInputTextureViewPtrs.clear();
     for (auto tex : inputTextures) {
-        ID3D11ShaderResourceView* resourceView;
+        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> resourceView;
         OK_OR_THROW(
-            mDevice->CreateShaderResourceView(tex, nullptr, &resourceView),
+            mDevice->CreateShaderResourceView(tex, nullptr, resourceView.GetAddressOf()),
             "Failed to create input texture resosurce view."
         );
         mInputTextureViews.push_back(resourceView);
+        mInputTextureViewPtrs.push_back(resourceView.Get());
     }
 
     D3D11_TEXTURE2D_DESC renderTargetDesc;
@@ -108,8 +110,9 @@ void RenderPipelineYUV::Initialize(
     ID3D11Texture2D* renderTarget,
     ID3D11Buffer* shaderBuffer
 ) {
-    auto pixelShader = CreatePixelShader(mDevice.Get(), pixelShaderCSO);
-    Initialize(inputTextures, quadVertexShader, pixelShader, renderTarget, shaderBuffer);
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> pixelShader;
+    pixelShader.Attach(CreatePixelShader(mDevice.Get(), pixelShaderCSO));
+    Initialize(inputTextures, quadVertexShader, pixelShader.Get(), renderTarget, shaderBuffer);
 }
 
 void RenderPipelineYUV::Render(ID3D11DeviceContext* otherContext) {
@@ -122,7 +125,12 @@ void RenderPipelineYUV::Render(ID3D11DeviceContext* otherContext) {
     ID3D11RenderTargetView* aRenderTargetsHack[] = { mRenderTargetViewY.Get() };
     D3D11_VIEWPORT aViewportsHack[] = { mViewportY };
 
-    if (!mSeparatePlanePasses) {
+    if (mSeparatePlanePasses) {
+        // Replace the preceding pass's RTV before binding its texture as an SRV.
+        // Otherwise D3D11 substitutes NULL for the conflicting input binding.
+        context->OMSetRenderTargets(1, aRenderTargetsHack, nullptr);
+        context->RSSetViewports(1, &mViewportY);
+    } else {
         context->OMSetRenderTargets(2, aRenderTargets, nullptr);
         context->RSSetViewports(2, aViewports);
     }
@@ -131,25 +139,25 @@ void RenderPipelineYUV::Render(ID3D11DeviceContext* otherContext) {
         context->PSSetConstantBuffers(0, 1, mShaderBuffer.GetAddressOf());
     }
 
-    std::vector<ID3D11ShaderResourceView*> inputTextureViewPtrs;
-    for (auto texView : mInputTextureViews) {
-        inputTextureViewPtrs.push_back(texView.Get());
-    }
-    context->PSSetShaderResources(0, (UINT)mInputTextureViews.size(), &inputTextureViewPtrs[0]);
+    context->PSSetShaderResources(0, (UINT)mInputTextureViewPtrs.size(), mInputTextureViewPtrs.data());
 
     context->VSSetShader(mVertexShader.Get(), nullptr, 0);
     context->PSSetShader(mPixelShader.Get(), nullptr, 0);
 
     context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     if (mSeparatePlanePasses) {
-        context->OMSetRenderTargets(1, aRenderTargetsHack, nullptr);
-        context->RSSetViewports(1, &mViewportY);
         context->Draw(4, 0);
 
         ID3D11RenderTargetView* uvTargets[] = { nullptr, mRenderTargetViewUV.Get() };
         context->OMSetRenderTargets(2, uvTargets, nullptr);
         context->RSSetViewports(1, &mViewportUV);
         context->Draw(4, 0);
+
+        // Release input/output bindings before the next frame and encoder copy.
+        static ID3D11ShaderResourceView* const
+            nullViews[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+        context->PSSetShaderResources(0, (UINT)mInputTextureViewPtrs.size(), nullViews);
+        context->OMSetRenderTargets(0, nullptr, nullptr);
         return;
     }
     context->Draw(4, 0);

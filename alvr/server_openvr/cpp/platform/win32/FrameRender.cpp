@@ -572,7 +572,8 @@ bool FrameRender::Startup() {
 void FrameRender::InitializeSdrP010(ID3D11VertexShader* quadVertexShader) {
     uint32_t width, height;
     GetEncodingResolution(&width, &height);
-    auto texture = ComPtr<ID3D11Texture2D>(CreateTexture(
+    ComPtr<ID3D11Texture2D> texture;
+    texture.Attach(CreateTexture(
         m_pD3DRender->GetDevice(), width, height, DXGI_FORMAT_P010
     ));
     struct SdrP010Params {
@@ -582,7 +583,8 @@ void FrameRender::InitializeSdrP010(ID3D11VertexShader* quadVertexShader) {
     const SdrP010Params params = {
         full ? 0.0f : 64.0f, full ? 1023.0f : 876.0f, full ? 1023.0f : 896.0f, 0.0f
     };
-    ComPtr<ID3D11Buffer> buffer = CreateBuffer(m_pD3DRender->GetDevice(), params);
+    ComPtr<ID3D11Buffer> buffer;
+    buffer.Attach(CreateBuffer(m_pD3DRender->GetDevice(), params));
     std::vector<uint8_t> shader(SDR_P010_SHADER, SDR_P010_SHADER + sizeof(SDR_P010_SHADER));
     m_yuvPipeline = std::make_unique<RenderPipelineYUV>(m_pD3DRender->GetDevice());
     m_yuvPipeline->Initialize(

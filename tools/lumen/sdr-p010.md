@@ -44,6 +44,22 @@ the average of the four nonlinear RGB samples in each 2x2 block, equivalent to
 averaging YCbCr chroma. Separate Y and UV draws use full and half-sized viewports;
 the old HDR rendering workaround remains confined to its existing branch.
 
+The 2x2 average is centred at `(2*x+0.5, 2*y+0.5)` in luma sample coordinates.
+For SDR 10-bit HEVC, `chromaSampleLocationFlag=1` and both Top/Bot are explicitly
+type **1**, matching the horizontally and vertically centred location in
+[H.265 (04/2013), Annex E, Figure E.1 and Note 8](https://www.itu.int/rec/dologin_pub.asp?id=T-REC-H.265-201304-S%21%21PDF-E&lang=e&type=items).
+Type 0 is horizontally left/co-sited and vertically centred; leaving the preset
+location implicit would not describe this filter. Both fields agree for the
+progressive source. HDR and SDR 8-bit retain their existing VUI settings.
+
+The SDR draw binds its Y render target before binding the preceding pass's output
+as an SRV, so D3D11 does not substitute a null input for an RTV/SRV conflict. The
+UV draw then replaces the Y target; both draws read the same separate RGB input.
+Input SRVs and output RTVs are unbound after the UV draw before the next frame
+and encoder copy. The input pointer array is cached at initialization. P010
+texture/buffer factory results and the pipeline pixel shader adopt their creation
+references with `ComPtr::Attach`; input SRVs are created directly into ComPtrs.
+
 [Microsoft's P010 definition](https://learn.microsoft.com/en-us/windows/win32/medfound/10-bit-and-16-bit-yuv-video-formats)
 requires samples in bits 15:6, with the low six bits zero. The shader rounds a
 code `c` to `q=floor(clamp(c,0,1023)+0.5)` (ties upward), then outputs
