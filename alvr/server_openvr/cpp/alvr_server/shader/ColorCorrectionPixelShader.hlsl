@@ -48,7 +48,7 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target{
     pixel = blendLighten(lerp(dot(pixel, float3(0.299, 0.587, 0.114)), pixel, saturation), pixel);  // saturation + lighten only
 
 	pixel = pqEnabled != 0.0 ? max(pixel, 0) : clamp(pixel, 0, 1);
-	pixel = pow(pixel, 1. / gamma);                                                                 // gamma
+	pixel = pow(abs(pixel), 1. / gamma);                                                            // gamma; abs is an fxc pow-base guard
 
 	return float4(pixel, 1);
 }

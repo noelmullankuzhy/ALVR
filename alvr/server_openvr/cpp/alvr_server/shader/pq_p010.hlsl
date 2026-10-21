@@ -13,11 +13,12 @@ cbuffer PqP010Params {
 Texture2D<float4> sourceTexture : register(t0);
 
 // Textually parallel to Hdr10.h; ordered comparison maps NaN/negative to zero.
+// abs() wrappers only guard fxc's pow-base analysis; valid inputs are unchanged.
 float EncodePqNormalized(float normalized) {
     normalized = normalized > 0.0 ? (normalized < 1.0 ? normalized : 1.0) : 0.0;
     if (normalized == 0.0) return 0.0;
-    float p = pow(normalized, m1);
-    return pow((c1 + c2 * p) / (1.0 + c3 * p), m2);
+    float p = pow(abs(normalized), m1);
+    return pow(abs((c1 + c2 * p) / (1.0 + c3 * p)), m2);
 }
 
 float3 ReadEncoded(int2 pos) {

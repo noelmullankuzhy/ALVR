@@ -30,10 +30,10 @@ float4 EncodingLinearToNonlinearRGB(float4 color, float gamma)
 {
 	float4 nonlinearColor;
 
-	nonlinearColor.r = (color.r <= 0.0) ? color.r : pow(color.r, gamma);
-	nonlinearColor.g = (color.g <= 0.0) ? color.g : pow(color.g, gamma);
-	nonlinearColor.b = (color.b <= 0.0) ? color.b : pow(color.b, gamma);
-	nonlinearColor.a = (color.a <= 0.0) ? color.a : pow(color.a, gamma);
+	nonlinearColor.r = (color.r <= 0.0) ? color.r : pow(abs(color.r), gamma);
+	nonlinearColor.g = (color.g <= 0.0) ? color.g : pow(abs(color.g), gamma);
+	nonlinearColor.b = (color.b <= 0.0) ? color.b : pow(abs(color.b), gamma);
+	nonlinearColor.a = (color.a <= 0.0) ? color.a : pow(abs(color.a), gamma);
 
 	return nonlinearColor;
 }
@@ -42,10 +42,10 @@ float4 LinearToNonlinearRGB(float4 color, float gamma)
 {
 	float4 nonlinearColor;
 
-	nonlinearColor.r = (color.r <= 0.0031308) ? (color.r * 12.92) : (1.055 * pow(color.r, gamma) - 0.055);
-	nonlinearColor.g = (color.g <= 0.0031308) ? (color.g * 12.92) : (1.055 * pow(color.g, gamma) - 0.055);
-	nonlinearColor.b = (color.b <= 0.0031308) ? (color.b * 12.92) : (1.055 * pow(color.b, gamma) - 0.055);
-	nonlinearColor.a = (color.a <= 0.0031308) ? (color.a * 12.92) : (1.055 * pow(color.a, gamma) - 0.055);
+	nonlinearColor.r = (color.r <= 0.0031308) ? (color.r * 12.92) : (1.055 * pow(abs(color.r), gamma) - 0.055);
+	nonlinearColor.g = (color.g <= 0.0031308) ? (color.g * 12.92) : (1.055 * pow(abs(color.g), gamma) - 0.055);
+	nonlinearColor.b = (color.b <= 0.0031308) ? (color.b * 12.92) : (1.055 * pow(abs(color.b), gamma) - 0.055);
+	nonlinearColor.a = (color.a <= 0.0031308) ? (color.a * 12.92) : (1.055 * pow(abs(color.a), gamma) - 0.055);
 
 	return nonlinearColor;
 }
@@ -54,10 +54,10 @@ float4 NonlinearToLinearRGB(float4 color, float gamma)
 {
 	float4 linearColor;
 
-	linearColor.r = (color.r <= 0.04045) ? (color.r / 12.92) : pow((color.r + 0.055) / 1.055, gamma);
-	linearColor.g = (color.g <= 0.04045) ? (color.g / 12.92) : pow((color.g + 0.055) / 1.055, gamma);
-	linearColor.b = (color.b <= 0.04045) ? (color.b / 12.92) : pow((color.b + 0.055) / 1.055, gamma);
-	linearColor.a = (color.a <= 0.04045) ? (color.a / 12.92) : pow((color.a + 0.055) / 1.055, gamma);
+	linearColor.r = (color.r <= 0.04045) ? (color.r / 12.92) : pow(abs((color.r + 0.055) / 1.055), gamma);
+	linearColor.g = (color.g <= 0.04045) ? (color.g / 12.92) : pow(abs((color.g + 0.055) / 1.055), gamma);
+	linearColor.b = (color.b <= 0.04045) ? (color.b / 12.92) : pow(abs((color.b + 0.055) / 1.055), gamma);
+	linearColor.a = (color.a <= 0.04045) ? (color.a / 12.92) : pow(abs((color.a + 0.055) / 1.055), gamma);
 
     return linearColor;
 }
