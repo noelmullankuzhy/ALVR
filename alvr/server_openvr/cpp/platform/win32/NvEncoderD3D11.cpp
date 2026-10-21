@@ -31,7 +31,7 @@ DXGI_FORMAT GetD3D11Format(NV_ENC_BUFFER_FORMAT eBufferFormat)
 	case NV_ENC_BUFFER_FORMAT_ABGR:
 		return DXGI_FORMAT_R8G8B8A8_UNORM;
     case NV_ENC_BUFFER_FORMAT_ABGR10:
-		return DXGI_FORMAT_R8G8B8A8_UNORM;
+		return DXGI_FORMAT_R10G10B10A2_UNORM;
     case NV_ENC_BUFFER_FORMAT_YUV420_10BIT:
         return DXGI_FORMAT_P010;
     default:
@@ -150,4 +150,3 @@ void NvEncoderD3D11::ReleaseD3D11Resources()
         m_pD3D11Device = nullptr;
     }
 }
-

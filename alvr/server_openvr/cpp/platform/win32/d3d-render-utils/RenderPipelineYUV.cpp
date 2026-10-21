@@ -122,8 +122,10 @@ void RenderPipelineYUV::Render(ID3D11DeviceContext* otherContext) {
     ID3D11RenderTargetView* aRenderTargetsHack[] = { mRenderTargetViewY.Get() };
     D3D11_VIEWPORT aViewportsHack[] = { mViewportY };
 
-    context->OMSetRenderTargets(2, aRenderTargets, nullptr);
-    context->RSSetViewports(2, aViewports);
+    if (!mSeparatePlanePasses) {
+        context->OMSetRenderTargets(2, aRenderTargets, nullptr);
+        context->RSSetViewports(2, aViewports);
+    }
 
     if (mShaderBuffer != nullptr) {
         context->PSSetConstantBuffers(0, 1, mShaderBuffer.GetAddressOf());
@@ -139,6 +141,17 @@ void RenderPipelineYUV::Render(ID3D11DeviceContext* otherContext) {
     context->PSSetShader(mPixelShader.Get(), nullptr, 0);
 
     context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    if (mSeparatePlanePasses) {
+        context->OMSetRenderTargets(1, aRenderTargetsHack, nullptr);
+        context->RSSetViewports(1, &mViewportY);
+        context->Draw(4, 0);
+
+        ID3D11RenderTargetView* uvTargets[] = { nullptr, mRenderTargetViewUV.Get() };
+        context->OMSetRenderTargets(2, uvTargets, nullptr);
+        context->RSSetViewports(1, &mViewportUV);
+        context->Draw(4, 0);
+        return;
+    }
     context->Draw(4, 0);
 
     // HACK: Whyyyyyy does the Y channel only render the top-left corner

@@ -110,6 +110,9 @@ private:
     bool enableFFE;
 
     std::unique_ptr<d3d_render_utils::RenderPipelineYUV> m_yuvPipeline;
+    bool m_sdrP010 = false;
+    bool m_floatSdr = false;
+    void InitializeSdrP010(ID3D11VertexShader* quadVertexShader);
 
     static bool SetGpuPriority(ID3D11Device* device) {
         typedef enum _D3DKMT_SCHEDULINGPRIORITYCLASS {
