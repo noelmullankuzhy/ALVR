@@ -46,6 +46,17 @@ pub fn registered_button_set(
     }
 }
 
+// Source set used for automatic mapping until the client declares its interaction profile
+pub fn default_source_button_set(
+    _controllers_emulation_mode: &ControllersEmulationMode,
+) -> HashSet<u64> {
+    CONTROLLER_PROFILE_INFO
+        .get(&QUEST_CONTROLLER_PROFILE_ID)
+        .unwrap()
+        .button_set
+        .clone()
+}
+
 pub struct BindingTarget {
     destination: u64,
     mapping_type: ButtonMappingType,
@@ -689,5 +700,97 @@ impl ButtonMappingManager {
         }
 
         destination_buttons
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn profile_set(profile_id: u64) -> HashSet<u64> {
+        CONTROLLER_PROFILE_INFO
+            .get(&profile_id)
+            .unwrap()
+            .button_set
+            .clone()
+    }
+
+    fn config() -> AutomaticButtonMappingConfig {
+        AutomaticButtonMappingConfig {
+            click_threshold: HysteresisThreshold {
+                value: 0.5,
+                deviation: 0.05,
+            },
+            touch_threshold: HysteresisThreshold {
+                value: 0.1,
+                deviation: 0.05,
+            },
+            force_threshold: 0.8,
+        }
+    }
+
+    fn passthrough_destinations(
+        bindings: &HashMap<u64, Vec<BindingTarget>>,
+        source: u64,
+    ) -> Vec<u64> {
+        bindings
+            .get(&source)
+            .unwrap_or_else(|| panic!("{source:#x} not mapped"))
+            .iter()
+            .map(|target| {
+                assert!(matches!(target.mapping_type, ButtonMappingType::Passthrough));
+                assert!(target.binary_conditions.is_empty());
+                target.destination
+            })
+            .collect()
+    }
+
+    #[test]
+    fn psvr2_sense_default_source_is_psvr2_set() {
+        assert_eq!(
+            default_source_button_set(&ControllersEmulationMode::PSVR2Sense),
+            profile_set(*PSVR2_CONTROLLER_PROFILE_ID)
+        );
+    }
+
+    #[test]
+    fn quest_2_touch_default_source_is_quest_set() {
+        assert_eq!(
+            default_source_button_set(&ControllersEmulationMode::Quest2Touch),
+            profile_set(*QUEST_CONTROLLER_PROFILE_ID)
+        );
+    }
+
+    #[test]
+    fn psvr2_to_psvr2_maps_menu_and_system_click_and_touch() {
+        let psvr2_set = profile_set(*PSVR2_CONTROLLER_PROFILE_ID);
+        let bindings = automatic_bindings(&psvr2_set, &psvr2_set, &config());
+
+        for id in [
+            // Create
+            *LEFT_MENU_CLICK_ID,
+            *LEFT_MENU_TOUCH_ID,
+            // Options
+            *RIGHT_MENU_CLICK_ID,
+            *RIGHT_MENU_TOUCH_ID,
+            // PS
+            *LEFT_SYSTEM_CLICK_ID,
+            *LEFT_SYSTEM_TOUCH_ID,
+            *RIGHT_SYSTEM_CLICK_ID,
+            *RIGHT_SYSTEM_TOUCH_ID,
+        ] {
+            assert_eq!(passthrough_destinations(&bindings, id), vec![id]);
+        }
+    }
+
+    #[test]
+    fn quest_to_quest_bindings_are_identity() {
+        let quest_set = profile_set(*QUEST_CONTROLLER_PROFILE_ID);
+        let bindings = automatic_bindings(&quest_set, &quest_set, &config());
+
+        assert_eq!(bindings.keys().copied().collect::<HashSet<_>>(), quest_set);
+        for id in &quest_set {
+            assert_eq!(passthrough_destinations(&bindings, *id), vec![*id]);
+        }
     }
 }
