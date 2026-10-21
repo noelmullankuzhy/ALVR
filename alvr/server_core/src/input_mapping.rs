@@ -46,6 +46,45 @@ pub fn registered_button_set(
     }
 }
 
+// Source set used for automatic mapping until the client declares its interaction profile. A
+// PSVR2Sense client sends PSVR2 inputs from the first packet, so its declaration only confirms it.
+pub fn default_source_button_set(
+    controllers_emulation_mode: &ControllersEmulationMode,
+) -> HashSet<u64> {
+    let profile_id = match controllers_emulation_mode {
+        ControllersEmulationMode::PSVR2Sense => *PSVR2_CONTROLLER_PROFILE_ID,
+        _ => *QUEST_CONTROLLER_PROFILE_ID,
+    };
+
+    CONTROLLER_PROFILE_INFO
+        .get(&profile_id)
+        .unwrap()
+        .button_set
+        .clone()
+}
+
+// Applies the client's declared interaction profile to the automatic mapping manager. A declaration
+// that confirms the current source set keeps the manager, so held buttons are released correctly.
+pub fn apply_declared_button_set(
+    manager: &mut Option<ButtonMappingManager>,
+    declared_source: &HashSet<u64>,
+    controllers_emulation_mode: &ControllersEmulationMode,
+    button_mapping_config: &AutomaticButtonMappingConfig,
+) {
+    if manager
+        .as_ref()
+        .is_some_and(|m| m.automatic_source.as_ref() == Some(declared_source))
+    {
+        return;
+    }
+
+    *manager = Some(ButtonMappingManager::new_automatic(
+        declared_source,
+        controllers_emulation_mode,
+        button_mapping_config,
+    ));
+}
+
 pub struct BindingTarget {
     destination: u64,
     mapping_type: ButtonMappingType,
@@ -247,11 +286,13 @@ pub fn automatic_bindings(
 
     let mut bindings = HashMap::new();
 
-    // Menu buttons
+    // Menu buttons. Menu/system touch is mapped only when both sets have it
+    let shared_set = s_set.intersection(d_set).copied().collect::<HashSet<_>>();
     if s_set.contains(&*LEFT_MENU_CLICK_ID) {
         let click = click(*LEFT_MENU_CLICK_ID);
         if d_set.contains(&*LEFT_MENU_CLICK_ID) {
-            bindings.extend(map_button_pair_automatic(click, click, config));
+            let inputs = ct(&shared_set, *LEFT_MENU_CLICK_ID, *LEFT_MENU_TOUCH_ID);
+            bindings.extend(map_button_pair_automatic(inputs, inputs, config));
         } else if d_set.contains(&*LEFT_SYSTEM_CLICK_ID) {
             bindings.extend(map_button_pair_automatic(
                 click,
@@ -263,11 +304,8 @@ pub fn automatic_bindings(
     if s_set.contains(&*LEFT_SYSTEM_CLICK_ID) {
         let click = click(*LEFT_SYSTEM_CLICK_ID);
         if d_set.contains(&*LEFT_SYSTEM_CLICK_ID) {
-            bindings.extend(map_button_pair_automatic(
-                click,
-                ct(s_set, *LEFT_SYSTEM_CLICK_ID, *LEFT_SYSTEM_TOUCH_ID),
-                config,
-            ));
+            let inputs = ct(&shared_set, *LEFT_SYSTEM_CLICK_ID, *LEFT_SYSTEM_TOUCH_ID);
+            bindings.extend(map_button_pair_automatic(inputs, inputs, config));
         } else if d_set.contains(&*LEFT_MENU_CLICK_ID) {
             bindings.extend(map_button_pair_automatic(click, click, config));
         }
@@ -275,7 +313,8 @@ pub fn automatic_bindings(
     if s_set.contains(&*RIGHT_MENU_CLICK_ID) {
         let click = click(*RIGHT_MENU_CLICK_ID);
         if d_set.contains(&*RIGHT_MENU_CLICK_ID) {
-            bindings.extend(map_button_pair_automatic(click, click, config));
+            let inputs = ct(&shared_set, *RIGHT_MENU_CLICK_ID, *RIGHT_MENU_TOUCH_ID);
+            bindings.extend(map_button_pair_automatic(inputs, inputs, config));
         } else if d_set.contains(&*RIGHT_SYSTEM_CLICK_ID) {
             bindings.extend(map_button_pair_automatic(
                 click,
@@ -287,11 +326,8 @@ pub fn automatic_bindings(
     if s_set.contains(&*RIGHT_SYSTEM_CLICK_ID) {
         let click = click(*RIGHT_SYSTEM_CLICK_ID);
         if d_set.contains(&*RIGHT_SYSTEM_CLICK_ID) {
-            bindings.extend(map_button_pair_automatic(
-                click,
-                ct(s_set, *RIGHT_SYSTEM_CLICK_ID, *RIGHT_SYSTEM_TOUCH_ID),
-                config,
-            ));
+            let inputs = ct(&shared_set, *RIGHT_SYSTEM_CLICK_ID, *RIGHT_SYSTEM_TOUCH_ID);
+            bindings.extend(map_button_pair_automatic(inputs, inputs, config));
         } else if d_set.contains(&*RIGHT_MENU_CLICK_ID) {
             bindings.extend(map_button_pair_automatic(click, click, config));
         }
@@ -559,6 +595,8 @@ pub struct ButtonMappingManager {
     mappings: HashMap<u64, Vec<BindingTarget>>,
     binary_source_states: HashMap<u64, bool>,
     hysteresis_states: HashMap<u64, HashMap<u64, bool>>,
+    // Source set of automatic mappings, None for manual mappings
+    automatic_source: Option<HashSet<u64>>,
 }
 
 impl ButtonMappingManager {
@@ -572,6 +610,7 @@ impl ButtonMappingManager {
             mappings: automatic_bindings(source, &button_set, button_mapping_config),
             binary_source_states: HashMap::new(),
             hysteresis_states: HashMap::new(),
+            automatic_source: Some(source.clone()),
         }
     }
 
@@ -601,6 +640,7 @@ impl ButtonMappingManager {
             mappings,
             binary_source_states: HashMap::new(),
             hysteresis_states: HashMap::new(),
+            automatic_source: None,
         }
     }
 
@@ -689,5 +729,179 @@ impl ButtonMappingManager {
         }
 
         destination_buttons
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn profile_set(profile_id: u64) -> HashSet<u64> {
+        CONTROLLER_PROFILE_INFO
+            .get(&profile_id)
+            .unwrap()
+            .button_set
+            .clone()
+    }
+
+    fn config() -> AutomaticButtonMappingConfig {
+        AutomaticButtonMappingConfig {
+            click_threshold: HysteresisThreshold {
+                value: 0.5,
+                deviation: 0.05,
+            },
+            touch_threshold: HysteresisThreshold {
+                value: 0.1,
+                deviation: 0.05,
+            },
+            force_threshold: 0.8,
+        }
+    }
+
+    fn passthrough_destinations(
+        bindings: &HashMap<u64, Vec<BindingTarget>>,
+        source: u64,
+    ) -> Vec<u64> {
+        bindings
+            .get(&source)
+            .unwrap_or_else(|| panic!("{source:#x} not mapped"))
+            .iter()
+            .map(|target| {
+                assert!(matches!(
+                    target.mapping_type,
+                    ButtonMappingType::Passthrough
+                ));
+                assert!(target.binary_conditions.is_empty());
+                target.destination
+            })
+            .collect()
+    }
+
+    #[test]
+    fn psvr2_sense_default_source_is_psvr2_set() {
+        assert_eq!(
+            default_source_button_set(&ControllersEmulationMode::PSVR2Sense),
+            profile_set(*PSVR2_CONTROLLER_PROFILE_ID)
+        );
+    }
+
+    #[test]
+    fn quest_2_touch_default_source_is_quest_set() {
+        assert_eq!(
+            default_source_button_set(&ControllersEmulationMode::Quest2Touch),
+            profile_set(*QUEST_CONTROLLER_PROFILE_ID)
+        );
+    }
+
+    #[test]
+    fn psvr2_to_psvr2_maps_menu_and_system_click_and_touch() {
+        let psvr2_set = profile_set(*PSVR2_CONTROLLER_PROFILE_ID);
+        let bindings = automatic_bindings(&psvr2_set, &psvr2_set, &config());
+
+        for id in [
+            // Create
+            *LEFT_MENU_CLICK_ID,
+            *LEFT_MENU_TOUCH_ID,
+            // Options
+            *RIGHT_MENU_CLICK_ID,
+            *RIGHT_MENU_TOUCH_ID,
+            // PS
+            *LEFT_SYSTEM_CLICK_ID,
+            *LEFT_SYSTEM_TOUCH_ID,
+            *RIGHT_SYSTEM_CLICK_ID,
+            *RIGHT_SYSTEM_TOUCH_ID,
+        ] {
+            assert_eq!(passthrough_destinations(&bindings, id), vec![id]);
+        }
+    }
+
+    #[test]
+    fn quest_to_quest_bindings_are_identity() {
+        let quest_set = profile_set(*QUEST_CONTROLLER_PROFILE_ID);
+        let bindings = automatic_bindings(&quest_set, &quest_set, &config());
+
+        assert_eq!(bindings.keys().copied().collect::<HashSet<_>>(), quest_set);
+        for id in &quest_set {
+            assert_eq!(passthrough_destinations(&bindings, *id), vec![*id]);
+        }
+    }
+
+    // Same construction as the connection's initial manager
+    fn default_psvr2_manager() -> Option<ButtonMappingManager> {
+        let mode = ControllersEmulationMode::PSVR2Sense;
+        Some(ButtonMappingManager::new_automatic(
+            &default_source_button_set(&mode),
+            &mode,
+            &config(),
+        ))
+    }
+
+    fn binary(path_id: u64, value: bool) -> ButtonEntry {
+        ButtonEntry {
+            path_id,
+            value: ButtonValue::Binary(value),
+        }
+    }
+
+    fn mapped(entries: Vec<ButtonEntry>) -> Vec<(u64, bool)> {
+        entries
+            .into_iter()
+            .map(|entry| match entry.value {
+                ButtonValue::Binary(value) => (entry.path_id, value),
+                ButtonValue::Scalar(_) => panic!("{:#x} mapped to scalar", entry.path_id),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn psvr2_confirming_declaration_keeps_held_button_state() {
+        let mode = ControllersEmulationMode::PSVR2Sense;
+        let mut manager = default_psvr2_manager();
+
+        let press = manager
+            .as_mut()
+            .unwrap()
+            .map_button(&binary(*RIGHT_MENU_CLICK_ID, true));
+        assert_eq!(mapped(press), vec![(*RIGHT_MENU_CLICK_ID, true)]);
+
+        apply_declared_button_set(
+            &mut manager,
+            &profile_set(*PSVR2_CONTROLLER_PROFILE_ID),
+            &mode,
+            &config(),
+        );
+
+        let manager = manager.as_mut().unwrap();
+        let release = manager.map_button(&binary(*RIGHT_MENU_CLICK_ID, false));
+        assert_eq!(mapped(release), vec![(*RIGHT_MENU_CLICK_ID, false)]);
+        assert!(manager.binary_source_states.values().all(|held| !held));
+    }
+
+    #[test]
+    fn declaration_with_different_set_rebuilds_manager() {
+        let mode = ControllersEmulationMode::PSVR2Sense;
+        let mut manager = default_psvr2_manager();
+        assert!(manager
+            .as_ref()
+            .unwrap()
+            .mappings
+            .contains_key(&*LEFT_MENU_TOUCH_ID));
+
+        manager
+            .as_mut()
+            .unwrap()
+            .map_button(&binary(*RIGHT_MENU_CLICK_ID, true));
+
+        apply_declared_button_set(
+            &mut manager,
+            &profile_set(*QUEST_CONTROLLER_PROFILE_ID),
+            &mode,
+            &config(),
+        );
+
+        // Quest has no menu touch, and a rebuilt manager starts with no held sources
+        let manager = manager.as_ref().unwrap();
+        assert!(!manager.mappings.contains_key(&*LEFT_MENU_TOUCH_ID));
+        assert!(manager.binary_source_states.is_empty());
     }
 }

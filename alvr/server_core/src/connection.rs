@@ -1,7 +1,7 @@
 use crate::{
     bitrate::BitrateManager,
     hand_gestures::HandGestureManager,
-    input_mapping::ButtonMappingManager,
+    input_mapping::{self, ButtonMappingManager},
     sockets::WelcomeSocket,
     statistics::StatisticsManager,
     tracking::{self, TrackingManager},
@@ -15,7 +15,7 @@ use alvr_common::{
     parking_lot::{Condvar, Mutex, RwLock},
     settings_schema::Switch,
     warn, AnyhowToCon, ConResult, ConnectionError, ConnectionState, LifecycleState, Pose,
-    BUTTON_INFO, CONTROLLER_PROFILE_INFO, QUEST_CONTROLLER_PROFILE_PATH,
+    BUTTON_INFO, CONTROLLER_PROFILE_INFO,
 };
 use alvr_events::{AdbEvent, ButtonEvent, EventType};
 use alvr_packets::{
@@ -1139,10 +1139,7 @@ fn connection_pipeline(
                 ButtonMappingManager::new_manual(mappings)
             } else {
                 ButtonMappingManager::new_automatic(
-                    &CONTROLLER_PROFILE_INFO
-                        .get(&alvr_common::hash_string(QUEST_CONTROLLER_PROFILE_PATH))
-                        .unwrap()
-                        .button_set,
+                    &input_mapping::default_source_button_set(&config.emulation_mode),
                     &config.emulation_mode,
                     &config.button_mapping_config,
                 )
@@ -1282,26 +1279,28 @@ fn connection_pipeline(
                         };
                     }
                     ClientControlPacket::ActiveInteractionProfile { profile_id, .. } => {
-                        controller_button_mapping_manager = if let Switch::Enabled(config) =
+                        if let Switch::Enabled(config) =
                             &SESSION_MANAGER.read().settings().headset.controllers
                         {
                             if let Some(mappings) = &config.button_mappings {
-                                Some(ButtonMappingManager::new_manual(mappings))
+                                controller_button_mapping_manager =
+                                    Some(ButtonMappingManager::new_manual(mappings));
                             } else if let (Some(profile_info), Some(emulation_mode)) = (
                                 CONTROLLER_PROFILE_INFO.get(&profile_id),
                                 &controllers_emulation_mode,
                             ) {
-                                Some(ButtonMappingManager::new_automatic(
+                                input_mapping::apply_declared_button_set(
+                                    &mut controller_button_mapping_manager,
                                     &profile_info.button_set,
                                     emulation_mode,
                                     &config.button_mapping_config,
-                                ))
+                                );
                             } else {
-                                None
+                                controller_button_mapping_manager = None;
                             }
                         } else {
-                            None
-                        };
+                            controller_button_mapping_manager = None;
+                        }
                     }
                     ClientControlPacket::Log { level, message } => {
                         info!("Client {client_hostname}: [{level:?}] {message}")
