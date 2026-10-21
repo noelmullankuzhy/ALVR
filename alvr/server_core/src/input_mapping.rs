@@ -46,12 +46,18 @@ pub fn registered_button_set(
     }
 }
 
-// Source set used for automatic mapping until the client declares its interaction profile
+// Source set used for automatic mapping until the client declares its interaction profile. A
+// PSVR2Sense client sends PSVR2 inputs from the first packet, so its declaration only confirms it.
 pub fn default_source_button_set(
-    _controllers_emulation_mode: &ControllersEmulationMode,
+    controllers_emulation_mode: &ControllersEmulationMode,
 ) -> HashSet<u64> {
+    let profile_id = match controllers_emulation_mode {
+        ControllersEmulationMode::PSVR2Sense => *PSVR2_CONTROLLER_PROFILE_ID,
+        _ => *QUEST_CONTROLLER_PROFILE_ID,
+    };
+
     CONTROLLER_PROFILE_INFO
-        .get(&QUEST_CONTROLLER_PROFILE_ID)
+        .get(&profile_id)
         .unwrap()
         .button_set
         .clone()
@@ -258,11 +264,13 @@ pub fn automatic_bindings(
 
     let mut bindings = HashMap::new();
 
-    // Menu buttons
+    // Menu buttons. Menu/system touch is mapped only when both sets have it
+    let shared_set = s_set.intersection(d_set).copied().collect::<HashSet<_>>();
     if s_set.contains(&*LEFT_MENU_CLICK_ID) {
         let click = click(*LEFT_MENU_CLICK_ID);
         if d_set.contains(&*LEFT_MENU_CLICK_ID) {
-            bindings.extend(map_button_pair_automatic(click, click, config));
+            let inputs = ct(&shared_set, *LEFT_MENU_CLICK_ID, *LEFT_MENU_TOUCH_ID);
+            bindings.extend(map_button_pair_automatic(inputs, inputs, config));
         } else if d_set.contains(&*LEFT_SYSTEM_CLICK_ID) {
             bindings.extend(map_button_pair_automatic(
                 click,
@@ -274,11 +282,8 @@ pub fn automatic_bindings(
     if s_set.contains(&*LEFT_SYSTEM_CLICK_ID) {
         let click = click(*LEFT_SYSTEM_CLICK_ID);
         if d_set.contains(&*LEFT_SYSTEM_CLICK_ID) {
-            bindings.extend(map_button_pair_automatic(
-                click,
-                ct(s_set, *LEFT_SYSTEM_CLICK_ID, *LEFT_SYSTEM_TOUCH_ID),
-                config,
-            ));
+            let inputs = ct(&shared_set, *LEFT_SYSTEM_CLICK_ID, *LEFT_SYSTEM_TOUCH_ID);
+            bindings.extend(map_button_pair_automatic(inputs, inputs, config));
         } else if d_set.contains(&*LEFT_MENU_CLICK_ID) {
             bindings.extend(map_button_pair_automatic(click, click, config));
         }
@@ -286,7 +291,8 @@ pub fn automatic_bindings(
     if s_set.contains(&*RIGHT_MENU_CLICK_ID) {
         let click = click(*RIGHT_MENU_CLICK_ID);
         if d_set.contains(&*RIGHT_MENU_CLICK_ID) {
-            bindings.extend(map_button_pair_automatic(click, click, config));
+            let inputs = ct(&shared_set, *RIGHT_MENU_CLICK_ID, *RIGHT_MENU_TOUCH_ID);
+            bindings.extend(map_button_pair_automatic(inputs, inputs, config));
         } else if d_set.contains(&*RIGHT_SYSTEM_CLICK_ID) {
             bindings.extend(map_button_pair_automatic(
                 click,
@@ -298,11 +304,8 @@ pub fn automatic_bindings(
     if s_set.contains(&*RIGHT_SYSTEM_CLICK_ID) {
         let click = click(*RIGHT_SYSTEM_CLICK_ID);
         if d_set.contains(&*RIGHT_SYSTEM_CLICK_ID) {
-            bindings.extend(map_button_pair_automatic(
-                click,
-                ct(s_set, *RIGHT_SYSTEM_CLICK_ID, *RIGHT_SYSTEM_TOUCH_ID),
-                config,
-            ));
+            let inputs = ct(&shared_set, *RIGHT_SYSTEM_CLICK_ID, *RIGHT_SYSTEM_TOUCH_ID);
+            bindings.extend(map_button_pair_automatic(inputs, inputs, config));
         } else if d_set.contains(&*RIGHT_MENU_CLICK_ID) {
             bindings.extend(map_button_pair_automatic(click, click, config));
         }

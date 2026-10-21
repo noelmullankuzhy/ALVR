@@ -1,7 +1,7 @@
 use crate::{
     bitrate::BitrateManager,
     hand_gestures::HandGestureManager,
-    input_mapping::ButtonMappingManager,
+    input_mapping::{self, ButtonMappingManager},
     sockets::WelcomeSocket,
     statistics::StatisticsManager,
     tracking::{self, TrackingManager},
@@ -15,7 +15,7 @@ use alvr_common::{
     parking_lot::{Condvar, Mutex, RwLock},
     settings_schema::Switch,
     warn, AnyhowToCon, ConResult, ConnectionError, ConnectionState, LifecycleState, Pose,
-    BUTTON_INFO, CONTROLLER_PROFILE_INFO, QUEST_CONTROLLER_PROFILE_PATH,
+    BUTTON_INFO, CONTROLLER_PROFILE_INFO,
 };
 use alvr_events::{AdbEvent, ButtonEvent, EventType};
 use alvr_packets::{
@@ -1139,10 +1139,7 @@ fn connection_pipeline(
                 ButtonMappingManager::new_manual(mappings)
             } else {
                 ButtonMappingManager::new_automatic(
-                    &CONTROLLER_PROFILE_INFO
-                        .get(&alvr_common::hash_string(QUEST_CONTROLLER_PROFILE_PATH))
-                        .unwrap()
-                        .button_set,
+                    &input_mapping::default_source_button_set(&config.emulation_mode),
                     &config.emulation_mode,
                     &config.button_mapping_config,
                 )
