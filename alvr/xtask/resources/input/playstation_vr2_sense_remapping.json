@@ -18,9 +18,11 @@
         { "from": "/user/hand/left/input/application_menu", "to": "/user/hand/right/input/options", "mirror": false }
       ],
       "remappings": [
-        { "from": { "path": "/user/hand/left/input/application_menu", "mode": "button", "input": "click" }, "to": { "path": "/user/hand/right/input/options", "mode": "complex_button", "input": "single" }, "mirror": false },
+        { "from": { "path": "/user/hand/left/input/application_menu", "mode": "button", "input": "click" }, "to": { "path": "/user/hand/right/input/options", "mode": "complex_button", "input": "single", "parameters_mode": "copy" }, "mirror": false },
         { "from": { "path": "/user/hand/left/pose/base" }, "to": { "path": "/user/hand/left/pose/raw" } },
         { "from": { "path": "/user/hand/left/pose/handgrip" }, "to": { "path": "/user/hand/left/pose/raw" } },
+        { "from": { "path": "/user/hand/left/pose/openxr_grip" }, "to": { "path": "/user/hand/left/pose/raw" } },
+        { "from": { "path": "/user/hand/left/pose/grip" }, "to": { "path": "/user/hand/left/pose/raw" } },
         { "from": { "path": "/user/hand/left/pose/tip" }, "to": { "path": "/user/hand/left/pose/raw" } },
         { "from": { "path": "/user/hand/left/pose/openxr_aim" }, "to": { "path": "/user/hand/left/pose/raw" } }
       ]
@@ -45,6 +47,8 @@
       "remappings": [
         { "from": { "path": "/user/hand/left/pose/base" }, "to": { "path": "/user/hand/left/pose/raw" } },
         { "from": { "path": "/user/hand/left/pose/handgrip" }, "to": { "path": "/user/hand/left/pose/raw" } },
+        { "from": { "path": "/user/hand/left/pose/openxr_grip" }, "to": { "path": "/user/hand/left/pose/raw" } },
+        { "from": { "path": "/user/hand/left/pose/grip" }, "to": { "path": "/user/hand/left/pose/raw" } },
         { "from": { "path": "/user/hand/left/pose/tip" }, "to": { "path": "/user/hand/left/pose/raw" } },
         { "from": { "path": "/user/hand/left/pose/openxr_aim" }, "to": { "path": "/user/hand/left/pose/raw" } }
       ]
