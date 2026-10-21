@@ -103,3 +103,5 @@ To remove this pipeline's PC files, delete only
 toolchains require no uninstaller or environment/registry cleanup. Remove Mac
 `local-scratch/pc-build-streamer/` to discard its bundle and logs. A stale Mac
 `lock` directory may be removed after verifying no build is active.
+
+Runtime FoV validation: see [the opt-in angle chart and PNG dump](angle-chart.md).
