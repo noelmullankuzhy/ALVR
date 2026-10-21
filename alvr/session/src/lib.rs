@@ -602,6 +602,63 @@ mod tests {
     use super::*;
 
     #[test]
+    fn hdr_pq_defaults_migration_and_round_trip() {
+        let mut session = SessionConfig::default();
+        let hdr = session.to_settings().video.encoder_config.hdr;
+        assert_eq!(hdr.transfer, HdrTransfer::Srgb);
+        assert_eq!(hdr.reference_white_nits, 203.0);
+        let mut old = json::to_value(&session).unwrap();
+        let hdr = &mut old["session_settings"]["video"]["encoder_config"]["hdr"];
+        hdr.as_object_mut().unwrap().remove("transfer");
+        hdr.as_object_mut().unwrap().remove("reference_white_nits");
+        old["openvr_config"]
+            .as_object_mut()
+            .unwrap()
+            .remove("hdr_transfer");
+        old["openvr_config"]
+            .as_object_mut()
+            .unwrap()
+            .remove("hdr_reference_white_nits");
+        session.merge_from_json(&old).unwrap();
+        assert_eq!(
+            session.to_settings().video.encoder_config.hdr.transfer,
+            HdrTransfer::Srgb
+        );
+        assert_eq!(
+            session
+                .to_settings()
+                .video
+                .encoder_config
+                .hdr
+                .reference_white_nits,
+            203.0
+        );
+        assert_eq!(session.openvr_config.hdr_transfer, HdrTransfer::Srgb);
+        assert_eq!(session.openvr_config.hdr_reference_white_nits, 203.0);
+        session
+            .merge_from_json(&json::json!({
+                "session_settings": { "video": { "encoder_config": { "hdr": {
+                    "transfer": { "variant": "Pq" }, "reference_white_nits": 400.0
+                } } } }
+            }))
+            .unwrap();
+        let hdr = session.to_settings().video.encoder_config.hdr;
+        assert_eq!(hdr.transfer, HdrTransfer::Pq);
+        assert_eq!(hdr.reference_white_nits, 400.0);
+        session.openvr_config.hdr_transfer = hdr.transfer;
+        session.openvr_config.hdr_reference_white_nits = hdr.reference_white_nits;
+        let restored: SessionConfig = json::from_value(json::to_value(&session).unwrap()).unwrap();
+        assert_eq!(restored.openvr_config.hdr_transfer, HdrTransfer::Pq);
+        assert_eq!(restored.openvr_config.hdr_reference_white_nits, 400.0);
+        let mut previous = restored.openvr_config.clone();
+        previous.hdr_transfer = HdrTransfer::Srgb;
+        assert_ne!(previous, restored.openvr_config);
+        previous = restored.openvr_config.clone();
+        previous.hdr_reference_white_nits = 203.0;
+        assert_ne!(previous, restored.openvr_config);
+    }
+
+    #[test]
     fn nvenc_split_defaults_to_auto_in_old_settings() {
         let settings = SessionConfig::default().to_settings();
         let nvenc = settings.video.encoder_config.nvenc;
@@ -638,15 +695,25 @@ mod tests {
         let mut session = SessionConfig::default();
         session.merge_from_json(&old).unwrap();
         assert_eq!(
-            session.to_settings().video.encoder_config.nvenc.split_encode_mode,
+            session
+                .to_settings()
+                .video
+                .encoder_config
+                .nvenc
+                .split_encode_mode,
             NvencSplitEncodeMode::Auto
         );
         let mut selected = json::to_value(&session).unwrap();
-        selected["session_settings"]["video"]["encoder_config"]["nvenc"]["split_encode_mode"]["variant"] =
-            json::json!("ForceTwo");
+        selected["session_settings"]["video"]["encoder_config"]["nvenc"]["split_encode_mode"]
+            ["variant"] = json::json!("ForceTwo");
         session.merge_from_json(&selected).unwrap();
         assert_eq!(
-            session.to_settings().video.encoder_config.nvenc.split_encode_mode,
+            session
+                .to_settings()
+                .video
+                .encoder_config
+                .nvenc
+                .split_encode_mode,
             NvencSplitEncodeMode::ForceTwo
         );
     }
@@ -654,7 +721,13 @@ mod tests {
     #[test]
     fn high_precision_sdr_defaults_and_session_upgrade() {
         let mut session = SessionConfig::default();
-        assert!(!session.to_settings().video.encoder_config.high_precision_sdr);
+        assert!(
+            !session
+                .to_settings()
+                .video
+                .encoder_config
+                .high_precision_sdr
+        );
         assert!(!session.openvr_config.high_precision_sdr);
 
         // A pre-setting session must keep its encoder settings and opt out.
@@ -670,7 +743,13 @@ mod tests {
         old["session_settings"]["video"]["encoder_config"]["use_10bit"] = true.into();
         session.merge_from_json(&old).unwrap();
         assert!(session.to_settings().video.encoder_config.use_10bit);
-        assert!(!session.to_settings().video.encoder_config.high_precision_sdr);
+        assert!(
+            !session
+                .to_settings()
+                .video
+                .encoder_config
+                .high_precision_sdr
+        );
         assert!(!session.openvr_config.high_precision_sdr);
     }
 
@@ -684,12 +763,24 @@ mod tests {
                 } } }
             }))
             .unwrap();
-        assert!(session.to_settings().video.encoder_config.high_precision_sdr);
+        assert!(
+            session
+                .to_settings()
+                .video
+                .encoder_config
+                .high_precision_sdr
+        );
         // The driver config has an independent, serialized restart-triggering field.
         session.openvr_config.high_precision_sdr = true;
         let restored: SessionConfig = json::from_value(json::to_value(&session).unwrap()).unwrap();
         assert!(restored.openvr_config.high_precision_sdr);
-        assert!(restored.to_settings().video.encoder_config.high_precision_sdr);
+        assert!(
+            restored
+                .to_settings()
+                .video
+                .encoder_config
+                .high_precision_sdr
+        );
         let mut previous = restored.openvr_config.clone();
         previous.high_precision_sdr = false;
         assert_ne!(previous, restored.openvr_config);
