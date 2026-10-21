@@ -182,9 +182,40 @@ fn packaged_psvr2_contract() {
         if from == "oculus_touch" {
             assert!(layout["remappings"].as_array().unwrap().contains(&json!({
                 "from": {"path": "/user/hand/left/input/application_menu", "mode": "button", "input": "click"},
-                "to": {"path": "/user/hand/right/input/options", "mode": "complex_button", "input": "single"},
+                "to": {"path": "/user/hand/right/input/options", "mode": "complex_button", "input": "single", "parameters_mode": "copy"},
                 "mirror": false
             })));
+        }
+        // Valve mirrors both paths by default unless a rule explicitly disables it.
+        for (hand, opposite) in [("left", "right"), ("right", "left")] {
+            for pose in [
+                "base",
+                "handgrip",
+                "openxr_grip",
+                "grip",
+                "tip",
+                "openxr_aim",
+            ] {
+                let source = format!("/user/hand/{hand}/pose/{pose}");
+                let target = format!("/user/hand/{hand}/pose/raw");
+                let mirrored_source = format!("/user/hand/{opposite}/pose/{pose}");
+                let mirrored_target = format!("/user/hand/{opposite}/pose/raw");
+                assert!(
+                    layout["remappings"].as_array().unwrap().iter().any(|rule| {
+                        let direct = rule["from"]["path"] == source && rule["to"]["path"] == target;
+                        let mirrored = rule["mirror"].as_bool().unwrap_or(true)
+                            && rule["from"]["path"] == mirrored_source
+                            && rule["to"]["path"] == mirrored_target;
+                        (direct || mirrored)
+                            && rule["from"]["mode"].is_null()
+                            && rule["from"]["input"].is_null()
+                            && rule["to"]["mode"].is_null()
+                            && rule["to"]["input"].is_null()
+                            && rule["remapping_mode"].as_str().unwrap_or("replace") == "replace"
+                    }),
+                    "{from}: missing pose remap {source} -> {target}"
+                );
+            }
         }
     }
     sh.remove_path(&scratch).unwrap();
