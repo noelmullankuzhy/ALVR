@@ -63,6 +63,7 @@ public:
     uint32_t m_swThreadCount;
 
     uint32_t m_nvencTuningPreset;
+    uint32_t m_nvencSplitEncodeMode;
     uint32_t m_nvencMultiPass;
     uint32_t m_nvencAdaptiveQuantizationMode;
     int64_t m_nvencLowDelayKeyFrameScale;

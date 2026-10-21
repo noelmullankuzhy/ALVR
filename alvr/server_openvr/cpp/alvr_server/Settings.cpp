@@ -85,6 +85,7 @@ void Settings::Load() {
         m_swThreadCount = (int32_t)config.get("sw_thread_count").get<int64_t>();
 
         m_nvencTuningPreset = (uint32_t)config.get("nvenc_tuning_preset").get<int64_t>();
+        m_nvencSplitEncodeMode = (uint32_t)config.get("nvenc_split_encode_mode").get<int64_t>();
         m_nvencMultiPass = (uint32_t)config.get("nvenc_multi_pass").get<int64_t>();
         m_nvencAdaptiveQuantizationMode
             = (uint32_t)config.get("nvenc_adaptive_quantization_mode").get<int64_t>();

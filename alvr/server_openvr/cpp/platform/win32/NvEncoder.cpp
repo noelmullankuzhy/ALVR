@@ -87,7 +87,7 @@ void NvEncoder::LoadNvEncApi()
 
     if (currentVersion > version)
     {
-        NVENC_THROW_ERROR("Current Driver Version does not support this NvEncodeAPI version, please upgrade driver", NV_ENC_ERR_INVALID_VERSION);
+        NVENC_THROW_ERROR("Driver does not support bundled NVENC API 12.1; please upgrade (Windows minimum 531.61, Linux 530.41.03)", NV_ENC_ERR_INVALID_VERSION);
     }
 
     typedef NVENCSTATUS(NVENCAPI *NvEncodeAPICreateInstance_Type)(NV_ENCODE_API_FUNCTION_LIST*);

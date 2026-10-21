@@ -56,6 +56,17 @@ void VideoEncoderNVENC::Initialize() {
         m_renderHeight,
         m_bitrateInMBits * 1'000'000L
     );
+    const char* splitMode = "Auto";
+    switch (initializeParams.splitEncodeMode) {
+    case NV_ENC_SPLIT_TWO_FORCED_MODE: splitMode = "ForceTwo"; break;
+    case NV_ENC_SPLIT_DISABLE_MODE: splitMode = "Disabled"; break;
+    }
+    Info(
+        "NVENC API %u.%u: split requested=%s, preset=P%u, tuning=%u, coded=%ux%u, codec=%d\n",
+        NVENCAPI_MAJOR_VERSION, NVENCAPI_MINOR_VERSION, splitMode,
+        Settings::Instance().m_nvencQualityPreset, initializeParams.tuningInfo,
+        initializeParams.encodeWidth, initializeParams.encodeHeight, m_codec
+    );
     try {
         m_NvNecoder->CreateEncoder(&initializeParams);
     } catch (NVENCException e) {
@@ -227,6 +238,16 @@ void VideoEncoderNVENC::FillEncodeConfig(
 
     initializeParams.enableWeightedPrediction
         = Settings::Instance().m_nvencEnableWeightedPrediction;
+    initializeParams.splitEncodeMode = Settings::Instance().m_nvencSplitEncodeMode;
+    if (initializeParams.splitEncodeMode == NV_ENC_SPLIT_TWO_FORCED_MODE) {
+        // Keep split blockers off for initialization and bitrate reconfiguration alike.
+        initializeParams.enableWeightedPrediction = 0;
+        initializeParams.enableSubFrameWrite = 0;
+        initializeParams.enableOutputInVidmem = 0;
+        if (m_codec == ALVR_CODEC_HEVC) {
+            encodeConfig.encodeCodecConfig.hevcConfig.enableAlphaLayerEncoding = 0;
+        }
+    }
 
     // 16 is recommended when using reference frame invalidation. But it has caused bad visual
     // quality. Now, use 0 (use default).
