@@ -741,7 +741,10 @@ mod tests {
             .unwrap_or_else(|| panic!("{source:#x} not mapped"))
             .iter()
             .map(|target| {
-                assert!(matches!(target.mapping_type, ButtonMappingType::Passthrough));
+                assert!(matches!(
+                    target.mapping_type,
+                    ButtonMappingType::Passthrough
+                ));
                 assert!(target.binary_conditions.is_empty());
                 target.destination
             })
