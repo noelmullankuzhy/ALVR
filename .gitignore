@@ -53,6 +53,7 @@ dist
 
 .vscode/
 .DS_Store
+/local-scratch/
 .ccls-cache
 
 # dependencies installed by xtask
