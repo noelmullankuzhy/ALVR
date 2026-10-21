@@ -129,11 +129,25 @@ fn main() {
     $env:PATH = "$shim;$env:PATH"
     $env:CARGO_ALIAS_XTASK = 'run --locked -p alvr_xtask --'
     Check-Budget
-    $build = Start-Process -FilePath $realCargo -ArgumentList @('xtask', 'build-streamer', '--release') -NoNewWindow -PassThru
+    # Own the process handle from launch: Start-Process -PassThru can lose ExitCode
+    # on Windows PowerShell 5.1 even after WaitForExit when the handle was not retained.
+    $build = New-Object Diagnostics.Process
+    $build.StartInfo.FileName = $realCargo
+    $build.StartInfo.WorkingDirectory = $src
+    $build.StartInfo.Arguments = 'xtask build-streamer --release'
+    $build.StartInfo.UseShellExecute = $false
+    $build.StartInfo.CreateNoWindow = $true
+    $build.StartInfo.RedirectStandardOutput = $true
+    $build.StartInfo.RedirectStandardError = $true
+    if (!$build.Start()) { throw 'Could not start cargo xtask build-streamer' }
+    # Drain both pipes concurrently so Cargo cannot block on a full output buffer.
+    $buildStdout = $build.StandardOutput.ReadToEndAsync()
+    $buildStderr = $build.StandardError.ReadToEndAsync()
     try {
         while (!$build.WaitForExit(15000)) { Check-Budget }
-        # Refresh the process handle before reading ExitCode on Windows PowerShell 5.1.
         $build.WaitForExit()
+        Write-Output $buildStdout.Result
+        Write-Output $buildStderr.Result
         if ($build.ExitCode -ne 0) { throw "cargo xtask build-streamer failed with exit code $($build.ExitCode)" }
     } catch {
         if (!$build.HasExited) {
