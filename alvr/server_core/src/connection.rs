@@ -1279,26 +1279,28 @@ fn connection_pipeline(
                         };
                     }
                     ClientControlPacket::ActiveInteractionProfile { profile_id, .. } => {
-                        controller_button_mapping_manager = if let Switch::Enabled(config) =
+                        if let Switch::Enabled(config) =
                             &SESSION_MANAGER.read().settings().headset.controllers
                         {
                             if let Some(mappings) = &config.button_mappings {
-                                Some(ButtonMappingManager::new_manual(mappings))
+                                controller_button_mapping_manager =
+                                    Some(ButtonMappingManager::new_manual(mappings));
                             } else if let (Some(profile_info), Some(emulation_mode)) = (
                                 CONTROLLER_PROFILE_INFO.get(&profile_id),
                                 &controllers_emulation_mode,
                             ) {
-                                Some(ButtonMappingManager::new_automatic(
+                                input_mapping::apply_declared_button_set(
+                                    &mut controller_button_mapping_manager,
                                     &profile_info.button_set,
                                     emulation_mode,
                                     &config.button_mapping_config,
-                                ))
+                                );
                             } else {
-                                None
+                                controller_button_mapping_manager = None;
                             }
                         } else {
-                            None
-                        };
+                            controller_button_mapping_manager = None;
+                        }
                     }
                     ClientControlPacket::Log { level, message } => {
                         info!("Client {client_hostname}: [{level:?}] {message}")

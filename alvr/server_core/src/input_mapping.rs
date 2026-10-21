@@ -63,6 +63,20 @@ pub fn default_source_button_set(
         .clone()
 }
 
+// Applies the client's declared interaction profile to the automatic mapping manager
+pub fn apply_declared_button_set(
+    manager: &mut Option<ButtonMappingManager>,
+    declared_source: &HashSet<u64>,
+    controllers_emulation_mode: &ControllersEmulationMode,
+    button_mapping_config: &AutomaticButtonMappingConfig,
+) {
+    *manager = Some(ButtonMappingManager::new_automatic(
+        declared_source,
+        controllers_emulation_mode,
+        button_mapping_config,
+    ));
+}
+
 pub struct BindingTarget {
     destination: u64,
     mapping_type: ButtonMappingType,
@@ -798,5 +812,84 @@ mod tests {
         for id in &quest_set {
             assert_eq!(passthrough_destinations(&bindings, *id), vec![*id]);
         }
+    }
+
+    // Same construction as the connection's initial manager
+    fn default_psvr2_manager() -> Option<ButtonMappingManager> {
+        let mode = ControllersEmulationMode::PSVR2Sense;
+        Some(ButtonMappingManager::new_automatic(
+            &default_source_button_set(&mode),
+            &mode,
+            &config(),
+        ))
+    }
+
+    fn binary(path_id: u64, value: bool) -> ButtonEntry {
+        ButtonEntry {
+            path_id,
+            value: ButtonValue::Binary(value),
+        }
+    }
+
+    fn mapped(entries: Vec<ButtonEntry>) -> Vec<(u64, bool)> {
+        entries
+            .into_iter()
+            .map(|entry| match entry.value {
+                ButtonValue::Binary(value) => (entry.path_id, value),
+                ButtonValue::Scalar(_) => panic!("{:#x} mapped to scalar", entry.path_id),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn psvr2_confirming_declaration_keeps_held_button_state() {
+        let mode = ControllersEmulationMode::PSVR2Sense;
+        let mut manager = default_psvr2_manager();
+
+        let press = manager
+            .as_mut()
+            .unwrap()
+            .map_button(&binary(*RIGHT_MENU_CLICK_ID, true));
+        assert_eq!(mapped(press), vec![(*RIGHT_MENU_CLICK_ID, true)]);
+
+        apply_declared_button_set(
+            &mut manager,
+            &profile_set(*PSVR2_CONTROLLER_PROFILE_ID),
+            &mode,
+            &config(),
+        );
+
+        let manager = manager.as_mut().unwrap();
+        let release = manager.map_button(&binary(*RIGHT_MENU_CLICK_ID, false));
+        assert_eq!(mapped(release), vec![(*RIGHT_MENU_CLICK_ID, false)]);
+        assert!(manager.binary_source_states.values().all(|held| !held));
+    }
+
+    #[test]
+    fn declaration_with_different_set_rebuilds_manager() {
+        let mode = ControllersEmulationMode::PSVR2Sense;
+        let mut manager = default_psvr2_manager();
+        assert!(manager
+            .as_ref()
+            .unwrap()
+            .mappings
+            .contains_key(&*LEFT_MENU_TOUCH_ID));
+
+        manager
+            .as_mut()
+            .unwrap()
+            .map_button(&binary(*RIGHT_MENU_CLICK_ID, true));
+
+        apply_declared_button_set(
+            &mut manager,
+            &profile_set(*QUEST_CONTROLLER_PROFILE_ID),
+            &mode,
+            &config(),
+        );
+
+        // Quest has no menu touch, and a rebuilt manager starts with no held sources
+        let manager = manager.as_ref().unwrap();
+        assert!(!manager.mappings.contains_key(&*LEFT_MENU_TOUCH_ID));
+        assert!(manager.binary_source_states.is_empty());
     }
 }
