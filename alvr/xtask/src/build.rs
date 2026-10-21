@@ -262,15 +262,21 @@ pub fn build_streamer(
         sh.copy_file(ufw, build_layout.ufw_config()).unwrap();
     }
 
-    // copy static resources
-    {
-        // copy driver manifest
-        sh.copy_file(
-            afs::crate_dir("xtask").join("resources/driver.vrdrivermanifest"),
-            build_layout.openvr_driver_manifest(),
-        )
-        .unwrap();
-    }
+    copy_streamer_resources(&sh, &build_layout);
+}
+
+pub fn copy_streamer_resources(sh: &Shell, build_layout: &Layout) {
+    sh.copy_file(
+        afs::crate_dir("xtask").join("resources/driver.vrdrivermanifest"),
+        build_layout.openvr_driver_manifest(),
+    )
+    .unwrap();
+    command::copy_recursive(
+        sh,
+        &afs::crate_dir("xtask").join("resources/input"),
+        &build_layout.resources_dir().join("input"),
+    )
+    .unwrap();
 }
 
 pub fn build_launcher(profile: Profile, reproducible: bool) {
