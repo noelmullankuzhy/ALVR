@@ -27,8 +27,7 @@ void CEncoder::Initialize(std::shared_ptr<CD3DRender> d3dRender) {
     const auto attempt = [&](Backend backend) {
         const auto plan = hdr10::MakeInputPlan(backend, preferPq, hevc,
             settings.m_use10bitEncoder, requestedHdr, settings.m_highPrecisionSdr);
-        settings.m_hdrPq = plan.pq;
-        settings.m_enableHdr = plan.hdr;
+        if (requestedPq) settings.m_hdrPq = plan.pq;
         const char* name = backend == Backend::Nvenc ? "NVENC" : backend == Backend::Amf ? "AMF" : "software";
         try {
             switch (backend) {

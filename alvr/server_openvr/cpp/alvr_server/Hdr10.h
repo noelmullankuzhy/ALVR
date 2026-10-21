@@ -29,7 +29,7 @@ struct InputPlan { bool pq, hdr, p010, floatComposition; };
 inline InputPlan MakeInputPlan(Backend backend, bool requestPq, bool hevc, bool tenBit,
     bool hdr, bool highPrecisionSdr) {
     const bool pq = requestPq && SupportsPq(backend == Backend::Nvenc, hevc, tenBit, false);
-    hdr = hdr && backend != Backend::Software; // SW consumes RGBA, never semiplanar YUV.
+    // Unsupported PQ falls back to Srgb; all legacy HDR settings stay intact.
     const bool p010 = backend == Backend::Nvenc && tenBit && (!hdr || pq);
     return {pq, hdr, p010, hdr || pq || (p010 && highPrecisionSdr)};
 }
