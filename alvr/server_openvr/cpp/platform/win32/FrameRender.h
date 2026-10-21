@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
+#include <chrono>
 #include <stdint.h>
 #include <string>
 
@@ -16,6 +18,7 @@
 #include <windows.h>
 
 #include "FFR.h"
+#include "AngleChartDump.h"
 #include "alvr_server/Hdr10.h"
 #include "alvr_server/openvr_driver_wrap.h"
 #include "d3d-render-utils/RenderPipelineYUV.h"
@@ -93,6 +96,15 @@ private:
     ComPtr<ID3D11Resource> m_messageBGTexture;
     ComPtr<ID3D11ShaderResourceView> m_messageBGResourceView;
 
+    std::mutex m_viewsMutex;
+    ComPtr<ID3D11VertexShader> m_chartVS;
+    ComPtr<ID3D11PixelShader> m_chartPS;
+    ComPtr<ID3D11Buffer> m_chartBuffer;
+    std::chrono::steady_clock::time_point m_chartPoll {};
+    bool m_chartEnabled = false, m_chartDirty = true;
+    ComPtr<ID3D11Texture2D> m_chartInput;
+    AngleChartDump m_chartDump;
+    void RenderAngleChart();
     vr::HmdRect2_t m_viewProj[2];
     vr::HmdMatrix34_t m_eyeToHead[2];
 

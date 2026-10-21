@@ -1,4 +1,7 @@
 #include "FrameRender.h"
+#include "angle_chart_shader.h"
+#include <filesystem>
+#include <fstream>
 #include "alvr_server/Logger.h"
 #include "alvr_server/Settings.h"
 #include "alvr_server/Utils.h"
@@ -461,6 +464,8 @@ bool FrameRender::Startup(const hdr10::InputPlan& plan) {
         m_pStagingTexture = m_ffr->GetOutputTexture();
     }
 
+    m_chartInput = m_pStagingTexture; // RGB encoder input, before any YUV conversion.
+
     if (Settings::Instance().m_enableHdr && !Settings::Instance().m_hdrPq) {
         std::vector<uint8_t> yuv420ShaderCSO(
             RGBTOYUV420_CSO_PTR, RGBTOYUV420_CSO_PTR + RGBTOYUV420_CSO_LEN
@@ -608,6 +613,9 @@ void FrameRender::SetViewsConfig(
     vr::HmdRect2_t projRight,
     vr::HmdMatrix34_t eyeToHeadRight
 ) {
+    std::lock_guard<std::mutex> lock(m_viewsMutex);
+    m_chartDirty = m_chartDirty || memcmp(m_viewProj, &projLeft, sizeof(projLeft)) != 0
+        || memcmp(&m_viewProj[1], &projRight, sizeof(projRight)) != 0;
     m_viewProj[0] = projLeft;
     m_eyeToHead[0] = eyeToHeadLeft;
     m_viewProj[1] = projRight;
@@ -623,6 +631,7 @@ bool FrameRender::RenderFrame(
     const std::string& message,
     const std::string& debugText
 ) {
+    std::lock_guard<std::mutex> lock(m_viewsMutex); // One projection snapshot for this frame.
     // Set render target
     m_pD3DRender->GetContext()->OMSetRenderTargets(1, m_pRenderTargetView.GetAddressOf(), NULL);
 
@@ -926,12 +935,21 @@ bool FrameRender::RenderFrame(
     m_pD3DRender->GetContext()->RSSetViewports(1, &m_viewport);
     m_pD3DRender->GetContext()->RSSetScissorRects(1, &m_scissor);
 
+    m_chartDump.Poll(m_pD3DRender->GetContext());
+    RenderAngleChart();
+
     if (enableColorCorrection) {
         m_colorCorrectionPipeline->Render();
     }
 
     if (enableFFE) {
         m_ffr->Render();
+    }
+
+    if (m_chartDump.Started()) {
+        m_chartDump.Capture(m_pD3DRender->GetDevice(), m_pD3DRender->GetContext(),
+                           m_chartInput.Get(), 1);
+        m_chartDump.armed = false;
     }
 
     if (Settings::Instance().m_enableHdr || m_sdrP010) {
@@ -951,5 +969,79 @@ void FrameRender::GetEncodingResolution(uint32_t* width, uint32_t* height) {
     } else {
         *width = Settings::Instance().m_renderWidth;
         *height = Settings::Instance().m_renderHeight;
+    }
+}
+
+void FrameRender::RenderAngleChart() {
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= m_chartPoll) {
+        m_chartPoll = now + std::chrono::seconds(1);
+        std::ifstream flag(std::filesystem::path(g_sessionPath).parent_path() / "angle_chart.enable");
+        const bool enabled = flag.good();
+        if (enabled != m_chartEnabled) {
+            std::string command;
+            flag >> command;
+            m_chartDump.armed = enabled && command == "dump";
+            m_chartEnabled = enabled;
+            m_chartDirty = true;
+            Info("angle_chart enabled=%d", enabled);
+        }
+    }
+    if (!m_chartEnabled) return;
+    auto device = m_pD3DRender->GetDevice();
+    auto context = m_pD3DRender->GetContext();
+    if (!m_chartPS) {
+        OK_OR_THROW(device->CreatePixelShader(ANGLE_CHART_SHADER, sizeof(ANGLE_CHART_SHADER),
+                    nullptr, &m_chartPS), "Angle chart pixel shader");
+        OK_OR_THROW(device->CreateVertexShader(QUAD_SHADER_CSO_PTR, QUAD_SHADER_CSO_LEN,
+                    nullptr, &m_chartVS), "Angle chart vertex shader");
+    }
+    if (m_chartDirty) {
+        struct Chart { float tangents[2][4]; float size[4]; } chart {};
+        chart.size[0] = m_viewportL.Width;
+        chart.size[1] = m_viewportL.Height;
+        uint32_t codedW, codedH;
+        GetEncodingResolution(&codedW, &codedH);
+        const auto& s = Settings::Instance();
+        for (int eye = 0; eye < 2; ++eye) {
+            const auto& p = m_viewProj[eye];
+            auto& t = chart.tangents[eye];
+            t[0] = p.vTopLeft.v[0]; t[1] = p.vBottomRight.v[0];
+            t[2] = p.vTopLeft.v[1]; t[3] = p.vBottomRight.v[1];
+            Info("angle_chart eye=%s w=%.0f h=%.0f tanL=%.9g tanR=%.9g tanD=%.9g tanU=%.9g "
+                 "foveation=%d centerSize=%.9g,%.9g centerShift=%.9g,%.9g edgeRatio=%.9g,%.9g coded=%ux%u",
+                 eye ? "R" : "L", chart.size[0], chart.size[1], t[0], t[1], t[2], t[3],
+                 enableFFE, s.m_foveationCenterSizeX, s.m_foveationCenterSizeY,
+                 s.m_foveationCenterShiftX, s.m_foveationCenterShiftY,
+                 s.m_foveationEdgeRatioX, s.m_foveationEdgeRatioY, codedW, codedH);
+        }
+        m_chartBuffer.Attach(CreateBuffer(device, chart));
+        m_chartDirty = false;
+    }
+    context->OMSetRenderTargets(1, m_pRenderTargetView.GetAddressOf(), nullptr);
+    context->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+    context->PSSetConstantBuffers(0, 1, m_chartBuffer.GetAddressOf());
+    context->VSSetShader(m_chartVS.Get(), nullptr, 0);
+    context->PSSetShader(m_chartPS.Get(), nullptr, 0);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    context->Draw(4, 0);
+    if (m_chartDump.armed && !m_chartDump.Busy()) {
+        ComPtr<ID3D11Resource> resource;
+        m_pRenderTargetView->GetResource(&resource);
+        ComPtr<ID3D11Texture2D> texture;
+        resource.As(&texture);
+        const auto& s = Settings::Instance();
+        uint32_t w, h; GetEncodingResolution(&w, &h);
+        char meta[2048];
+        const auto& l = m_viewProj[0]; const auto& r = m_viewProj[1];
+        snprintf(meta, sizeof(meta), "{\"tangents\":[[%.9g,%.9g,%.9g,%.9g],[%.9g,%.9g,%.9g,%.9g]],"
+            "\"renderEyeSize\":[%.0f,%.0f],\"foveation\":%s,\"centerSize\":[%.9g,%.9g],"
+            "\"centerShift\":[%.9g,%.9g],\"edgeRatio\":[%.9g,%.9g],\"codedSize\":[%u,%u]}",
+            l.vTopLeft.v[0], l.vBottomRight.v[0], l.vTopLeft.v[1], l.vBottomRight.v[1],
+            r.vTopLeft.v[0], r.vBottomRight.v[0], r.vTopLeft.v[1], r.vBottomRight.v[1],
+            m_viewportL.Width, m_viewportL.Height, enableFFE ? "true" : "false",
+            s.m_foveationCenterSizeX, s.m_foveationCenterSizeY, s.m_foveationCenterShiftX,
+            s.m_foveationCenterShiftY, s.m_foveationEdgeRatioX, s.m_foveationEdgeRatioY, w, h);
+        m_chartDump.Capture(device, context, texture.Get(), 0, meta);
     }
 }

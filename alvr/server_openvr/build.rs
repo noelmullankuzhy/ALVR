@@ -14,6 +14,7 @@ fn compile_p010_shaders(out_dir: &std::path::Path) {
         .unwrap_or_else(|| PathBuf::from("fxc.exe"));
     for (file, entry, name) in [
         ("sdr_p010.hlsl", "main", "SDR_P010"),
+        ("angle_chart.hlsl", "main", "ANGLE_CHART"),
         ("pq_p010.hlsl", "main", "PQ_P010"),
         ("FrameRender.fx", "PS", "PQ_FRAME"),
         ("ColorCorrectionPixelShader.hlsl", "main", "PQ_CORRECTION"),
@@ -38,6 +39,7 @@ fn compile_p010_shaders(out_dir: &std::path::Path) {
         assert!(status.success(), "Shader compilation failed: {shader}");
         println!("cargo:rerun-if-changed={shader}");
     }
+    println!("cargo:rerun-if-changed=cpp/alvr_server/shader/AngleChartAxis.h");
     println!("cargo:rerun-if-env-changed=WindowsSdkDir");
     println!("cargo:rerun-if-env-changed=WindowsSDKVersion");
 }
