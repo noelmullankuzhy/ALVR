@@ -74,16 +74,34 @@ int main() {
         const bool nvenc = mask & 1, hevc = mask & 2, tenBit = mask & 4, software = mask & 8;
         assert(SupportsPq(nvenc, hevc, tenBit, software) == (mask == 7));
     }
+    // Decision 63d: Srgb leaves legacy HDR intact, including on software.
+    const auto srgbHdrSoftware = MakeInputPlan(Backend::Software, false, true, true, true, true);
+    assert(!srgbHdrSoftware.pq && srgbHdrSoftware.hdr && srgbHdrSoftware.floatComposition);
+    assert(!srgbHdrSoftware.p010); // Legacy HDR conversion remains selected by hdr.
+    const auto srgbHdrNvenc = MakeInputPlan(Backend::Nvenc, false, true, true, true, true);
+    assert(!srgbHdrNvenc.pq && srgbHdrNvenc.hdr && srgbHdrNvenc.floatComposition);
+    assert(!srgbHdrNvenc.p010);
+    // An unsupported PQ request changes only transfer, preserving legacy HDR.
+    const auto pqHdrSoftware = MakeInputPlan(Backend::Software, true, true, true, true, true);
+    assert(!pqHdrSoftware.pq && pqHdrSoftware.hdr && pqHdrSoftware.floatComposition);
+    assert(pqHdrSoftware.hdr == srgbHdrSoftware.hdr);
+    assert(pqHdrSoftware.p010 == srgbHdrSoftware.p010);
+    assert(pqHdrSoftware.floatComposition == srgbHdrSoftware.floatComposition);
     for (auto backend : {Backend::Nvenc, Backend::Amf, Backend::Software}) {
         for (int mask = 0; mask < 32; ++mask) {
             const bool request = mask & 1, hevc = mask & 2, tenBit = mask & 4;
             const bool hdr = mask & 8, precision = mask & 16;
             const auto plan = MakeInputPlan(backend, request, hevc, tenBit, hdr, precision);
             assert(plan.pq == (backend == Backend::Nvenc && request && hevc && tenBit));
-            assert(plan.hdr == (hdr && backend != Backend::Software));
+            assert(plan.hdr == hdr);
             assert(plan.p010 == (backend == Backend::Nvenc && tenBit && (!hdr || plan.pq)));
             assert(plan.floatComposition == (plan.hdr || plan.pq || (plan.p010 && precision)));
-            if (backend == Backend::Software) assert(!plan.p010 && !plan.hdr && !plan.pq);
+            if (backend == Backend::Software) assert(!plan.p010 && !plan.pq);
+            if (!plan.pq) {
+                const auto legacy = MakeInputPlan(backend, false, hevc, tenBit, hdr, precision);
+                assert(plan.hdr == legacy.hdr && plan.p010 == legacy.p010);
+                assert(plan.floatComposition == legacy.floatComposition);
+            }
         }
     }
     // Regression: an NVENC failure on an NVIDIA adapter must select RGBA for SW.
