@@ -25,14 +25,23 @@ public:
 
     void Render(ID3D11DeviceContext* otherContext = nullptr);
 
+    // SDR P010 uses pixel coordinates and explicit full/half-resolution draws.
+    void UseSeparatePlanePasses() {
+        mSeparatePlanePasses = true;
+        mViewportUV.Width *= 0.5f;
+        mViewportUV.Height *= 0.5f;
+    }
+
 private:
     D3D11_VIEWPORT mViewportY;
     D3D11_VIEWPORT mViewportUV;
     bool mGenerateMipmaps;
+    bool mSeparatePlanePasses = false;
 
     Microsoft::WRL::ComPtr<ID3D11Device> mDevice;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> mImmediateContext;
     std::vector<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>> mInputTextureViews;
+    std::vector<ID3D11ShaderResourceView*> mInputTextureViewPtrs;
     Microsoft::WRL::ComPtr<ID3D11RasterizerState> mRasterizerState;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> mRenderTargetViewY;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> mRenderTargetViewUV;

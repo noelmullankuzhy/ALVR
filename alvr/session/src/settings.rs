@@ -352,6 +352,13 @@ CABAC produces better compression but it's significantly slower and may lead to 
 
     #[schema(strings(display_name = "Software (CPU) encoding"))]
     pub software: SoftwareEncodingConfig,
+
+    #[schema(strings(
+        display_name = "High precision SDR",
+        help = "Windows NVENC: preserve float16 composition and foveation before BT.709/sRGB P010 conversion. Requires 10-bit encoding and HDR off."
+    ))]
+    #[schema(flag = "steamvr-restart")]
+    pub high_precision_sdr: bool,
 }
 
 #[derive(SettingsSchema, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -1739,6 +1746,7 @@ pub fn session_settings_default() -> SettingsDefault {
                 variant: CodecTypeDefaultVariant::H264,
             },
             encoder_config: EncoderConfigDefault {
+                high_precision_sdr: false,
                 gui_collapsed: true,
                 rate_control_mode: RateControlModeDefault {
                     variant: RateControlModeDefaultVariant::Cbr,

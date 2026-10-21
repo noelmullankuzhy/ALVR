@@ -1,5 +1,32 @@
 use std::{env, path::PathBuf};
 
+// Compile the SDR-only shader from source; the existing HDR bytecode is unchanged.
+fn compile_sdr_p010(out_dir: &std::path::Path) {
+    let compiler = env::var_os("WindowsSdkDir")
+        .zip(env::var_os("WindowsSDKVersion"))
+        .map(|(root, version)| {
+            PathBuf::from(root)
+                .join("bin")
+                .join(version)
+                .join("x64/fxc.exe")
+        })
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("fxc.exe"));
+    let shader = "cpp/alvr_server/shader/sdr_p010.hlsl";
+    let status = std::process::Command::new(compiler)
+        .args([
+            "/nologo", "/WX", "/T", "ps_5_0", "/E", "main", "/Vn", "SDR_P010_SHADER", "/Fh",
+        ])
+        .arg(out_dir.join("sdr_p010_shader.h"))
+        .arg(shader)
+        .status()
+        .expect("SDR P010 shader requires fxc.exe from the existing Windows SDK");
+    assert!(status.success(), "SDR P010 shader compilation failed");
+    println!("cargo:rerun-if-changed={shader}");
+    println!("cargo:rerun-if-env-changed=WindowsSdkDir");
+    println!("cargo:rerun-if-env-changed=WindowsSDKVersion");
+}
+
 fn get_ffmpeg_path() -> PathBuf {
     let ffmpeg_path = alvr_filesystem::deps_dir()
         .join(if cfg!(target_os = "linux") {
@@ -67,7 +94,9 @@ fn main() {
         .include("cpp");
 
     if platform_name == "windows" {
+        compile_sdr_p010(&out_dir);
         build
+            .include(&out_dir)
             .debug(false) // This is because we cannot link to msvcrtd (see below)
             .flag("/permissive-")
             .define("NOMINMAX", None)

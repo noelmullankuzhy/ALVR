@@ -3,6 +3,7 @@
 #include "alvr_server/Settings.h"
 #include "alvr_server/Utils.h"
 #include "alvr_server/bindings.h"
+#include "sdr_p010_shader.h"
 
 extern uint64_t g_DriverTestMode;
 
@@ -98,6 +99,21 @@ bool FrameRender::Startup() {
         return true;
     }
 
+    // Other encoders retain their existing RGB input contract.
+    ComPtr<IDXGIDevice> dxgiDevice;
+    ComPtr<IDXGIAdapter> adapter;
+    DXGI_ADAPTER_DESC adapterDesc = {};
+    if (SUCCEEDED(m_pD3DRender->GetDevice()->QueryInterface(IID_PPV_ARGS(&dxgiDevice)))
+        && SUCCEEDED(dxgiDevice->GetAdapter(&adapter))
+        && SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
+        m_sdrP010 = adapterDesc.VendorId == 0x10de
+            && Settings::Instance().m_use10bitEncoder && !Settings::Instance().m_enableHdr;
+#ifdef ALVR_GPL
+        m_sdrP010 = m_sdrP010 && !Settings::Instance().m_force_sw_encoding;
+#endif
+    }
+    m_floatSdr = m_sdrP010 && Settings::Instance().m_highPrecisionSdr;
+
     //
     // Create staging texture
     // This is input texture of Video Encoder and is render target of both eyes.
@@ -107,7 +123,7 @@ bool FrameRender::Startup() {
     ZeroMemory(&compositionTextureDesc, sizeof(compositionTextureDesc));
     compositionTextureDesc.Width = Settings::Instance().m_renderWidth;
     compositionTextureDesc.Height = Settings::Instance().m_renderHeight;
-    compositionTextureDesc.Format = Settings::Instance().m_enableHdr
+    compositionTextureDesc.Format = (Settings::Instance().m_enableHdr || m_floatSdr)
         ? DXGI_FORMAT_R16G16B16A16_FLOAT
         : DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
     compositionTextureDesc.MipLevels = 1;
@@ -403,7 +419,7 @@ bool FrameRender::Startup() {
             m_pD3DRender->GetDevice(),
             Settings::Instance().m_renderWidth,
             Settings::Instance().m_renderHeight,
-            Settings::Instance().m_enableHdr ? DXGI_FORMAT_R16G16B16A16_FLOAT
+            (Settings::Instance().m_enableHdr || m_floatSdr) ? DXGI_FORMAT_R16G16B16A16_FLOAT
                                              : DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
         );
 
@@ -544,9 +560,40 @@ bool FrameRender::Startup() {
         m_pStagingTexture = yuvTexture;
     }
 
+    if (m_sdrP010) {
+        InitializeSdrP010(quadVertexShader.Get());
+    }
+
     Debug("Staging Texture created\n");
 
     return true;
+}
+
+void FrameRender::InitializeSdrP010(ID3D11VertexShader* quadVertexShader) {
+    uint32_t width, height;
+    GetEncodingResolution(&width, &height);
+    ComPtr<ID3D11Texture2D> texture;
+    texture.Attach(CreateTexture(
+        m_pD3DRender->GetDevice(), width, height, DXGI_FORMAT_P010
+    ));
+    struct SdrP010Params {
+        float yOffset, yScale, chromaScale, padding;
+    };
+    const bool full = Settings::Instance().m_useFullRangeEncoding;
+    const SdrP010Params params = {
+        full ? 0.0f : 64.0f, full ? 1023.0f : 876.0f, full ? 1023.0f : 896.0f, 0.0f
+    };
+    ComPtr<ID3D11Buffer> buffer;
+    buffer.Attach(CreateBuffer(m_pD3DRender->GetDevice(), params));
+    std::vector<uint8_t> shader(SDR_P010_SHADER, SDR_P010_SHADER + sizeof(SDR_P010_SHADER));
+    m_yuvPipeline = std::make_unique<RenderPipelineYUV>(m_pD3DRender->GetDevice());
+    m_yuvPipeline->Initialize(
+        { m_pStagingTexture.Get() }, quadVertexShader, shader, texture.Get(), buffer.Get()
+    );
+    m_yuvPipeline->UseSeparatePlanePasses();
+    m_pStagingTexture = texture;
+    Info("SDR pipeline: composition/correction/FFR=%s -> P010 (YUV420_10BIT), BT.709/sRGB, %s range",
+         m_floatSdr ? "R16G16B16A16_FLOAT" : "R8G8B8A8_UNORM_SRGB", full ? "full" : "limited");
 }
 
 void FrameRender::SetViewsConfig(
@@ -881,7 +928,7 @@ bool FrameRender::RenderFrame(
         m_ffr->Render();
     }
 
-    if (Settings::Instance().m_enableHdr) {
+    if (Settings::Instance().m_enableHdr || m_sdrP010) {
         m_yuvPipeline->Render();
     }
 

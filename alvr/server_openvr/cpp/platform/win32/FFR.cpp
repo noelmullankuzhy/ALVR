@@ -99,12 +99,13 @@ void FFR::Initialize(ID3D11Texture2D* compositionTexture) {
     );
     mQuadVertexShader = CreateVertexShader(mDevice.Get(), quadShaderCSO);
 
+    D3D11_TEXTURE2D_DESC compositionDesc;
+    compositionTexture->GetDesc(&compositionDesc);
     mOptimizedTexture = CreateTexture(
         mDevice.Get(),
         fovVars.optimizedEyeWidth * 2,
         fovVars.optimizedEyeHeight,
-        Settings::Instance().m_enableHdr ? DXGI_FORMAT_R16G16B16A16_FLOAT
-                                         : DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+        compositionDesc.Format
     );
 
     if (Settings::Instance().m_enableFoveatedEncoding) {

@@ -5,6 +5,16 @@
 #include "alvr_server/Settings.h"
 #include "alvr_server/Utils.h"
 
+static void ValidateSdr10bitInput(ID3D11Texture2D* texture) {
+    if (Settings::Instance().m_use10bitEncoder && !Settings::Instance().m_enableHdr) {
+        D3D11_TEXTURE2D_DESC desc;
+        texture->GetDesc(&desc);
+        if (desc.Format != DXGI_FORMAT_P010) {
+            throw MakeException("SDR 10-bit NVENC input must be P010; got DXGI format %u", desc.Format);
+        }
+    }
+}
+
 VideoEncoderNVENC::VideoEncoderNVENC(std::shared_ptr<CD3DRender> pD3DRender, int width, int height)
     : m_pD3DRender(pD3DRender)
     , m_codec(Settings::Instance().m_codec)
@@ -24,8 +34,8 @@ void VideoEncoderNVENC::Initialize() {
         = Settings::Instance().m_enableHdr ? NV_ENC_BUFFER_FORMAT_NV12 : NV_ENC_BUFFER_FORMAT_ABGR;
 
     if (Settings::Instance().m_use10bitEncoder) {
-        format = Settings::Instance().m_enableHdr ? NV_ENC_BUFFER_FORMAT_YUV420_10BIT
-                                                  : NV_ENC_BUFFER_FORMAT_ABGR10;
+        // SDR uses an explicit BT.709 conversion too, even with 8-bit composition.
+        format = NV_ENC_BUFFER_FORMAT_YUV420_10BIT;
     }
 
     Debug(
@@ -130,6 +140,7 @@ void VideoEncoderNVENC::Transmit(
 
     ID3D11Texture2D* pInputTexture
         = reinterpret_cast<ID3D11Texture2D*>(encoderInputFrame->inputPtr);
+    ValidateSdr10bitInput(pTexture);
     m_pD3DRender->GetContext()->CopyResource(pInputTexture, pTexture);
 
     NV_ENC_PIC_PARAMS picParams = {};
@@ -324,6 +335,9 @@ void VideoEncoderNVENC::FillEncodeConfig(
 
         if (Settings::Instance().m_use10bitEncoder) {
             encodeConfig.encodeCodecConfig.hevcConfig.pixelBitDepthMinus8 = 2;
+            if (!Settings::Instance().m_enableHdr) {
+                encodeConfig.profileGUID = NV_ENC_HEVC_PROFILE_MAIN10_GUID;
+            }
         }
 
         if (Settings::Instance().m_fillerData) {
@@ -345,6 +359,13 @@ void VideoEncoderNVENC::FillEncodeConfig(
             config.hevcVUIParameters.transferCharacteristics
                 = NV_ENC_VUI_TRANSFER_CHARACTERISTIC_SRGB;
             config.hevcVUIParameters.colourMatrix = NV_ENC_VUI_MATRIX_COEFFS_BT709;
+            if (Settings::Instance().m_use10bitEncoder) {
+                // sdr_p010.hlsl averages 2x2: H.265 Annex E, Figure E.1 type 1
+                // is centred horizontally and vertically. Progressive fields agree.
+                config.hevcVUIParameters.chromaSampleLocationFlag = 1;
+                config.hevcVUIParameters.chromaSampleLocationTop = 1;
+                config.hevcVUIParameters.chromaSampleLocationBot = 1;
+            }
         }
     } break;
     case ALVR_CODEC_AV1: {

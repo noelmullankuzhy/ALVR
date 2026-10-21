@@ -37,6 +37,8 @@ void Settings::Load() {
         }
 
         auto config = v.get("openvr_config");
+        m_highPrecisionSdr = config.get("high_precision_sdr").is<bool>()
+            && config.get("high_precision_sdr").get<bool>();
 
         m_refreshRate = (int)config.get("refresh_rate").get<int64_t>();
         m_renderWidth = config.get("eye_resolution_width").get<int64_t>() * 2;
