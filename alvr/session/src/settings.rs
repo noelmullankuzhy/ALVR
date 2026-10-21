@@ -79,6 +79,16 @@ pub enum NvencMultiPass {
     FullResolution = 2,
 }
 
+// Values match NV_ENC_SPLIT_ENCODE_MODE in NVENC API 12.1.
+#[repr(u32)]
+#[derive(SettingsSchema, Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub enum NvencSplitEncodeMode {
+    #[default]
+    Auto = 0,
+    ForceTwo = 2,
+    Disabled = 15,
+}
+
 #[repr(u32)]
 #[derive(SettingsSchema, Serialize, Deserialize, Clone, PartialEq)]
 pub enum NvencAdaptiveQuantizationMode {
@@ -118,6 +128,12 @@ pub struct NvencConfig {
     pub quality_preset: EncoderQualityPresetNvidia,
     #[schema(flag = "steamvr-restart")]
     pub tuning_preset: NvencTuningPreset,
+    #[schema(strings(
+        help = "Auto lets the driver choose. ForceTwo requests two NVENC engines per HEVC/AV1 frame and disables weighted prediction. Requires compatible hardware; H.264 does not support splitting."
+    ))]
+    #[schema(flag = "steamvr-restart")]
+    #[serde(default)]
+    pub split_encode_mode: NvencSplitEncodeMode,
     #[schema(strings(
         help = "Reduce compression artifacts at the cost of small performance penalty"
     ))]
@@ -1754,6 +1770,9 @@ pub fn session_settings_default() -> SettingsDefault {
                     },
                     tuning_preset: NvencTuningPresetDefault {
                         variant: NvencTuningPresetDefaultVariant::LowLatency,
+                    },
+                    split_encode_mode: NvencSplitEncodeModeDefault {
+                        variant: NvencSplitEncodeModeDefaultVariant::Auto,
                     },
                     multi_pass: NvencMultiPassDefault {
                         variant: NvencMultiPassDefaultVariant::QuarterResolution,

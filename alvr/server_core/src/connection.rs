@@ -209,6 +209,7 @@ pub fn contruct_openvr_config(session: &SessionConfig) -> OpenvrConfig {
         linux_async_compute: settings.extra.patches.linux_async_compute,
         linux_async_reprojection: settings.extra.patches.linux_async_reprojection,
         nvenc_tuning_preset: nvenc_overrides.tuning_preset as u32,
+        nvenc_split_encode_mode: nvenc_overrides.split_encode_mode as u32,
         nvenc_multi_pass: nvenc_overrides.multi_pass as u32,
         nvenc_adaptive_quantization_mode: nvenc_overrides.adaptive_quantization_mode as u32,
         nvenc_low_delay_key_frame_scale: nvenc_overrides.low_delay_key_frame_scale,

@@ -81,6 +81,8 @@ pub struct OpenvrConfig {
     pub linux_async_reprojection: bool,
     pub nvenc_quality_preset: u32,
     pub nvenc_tuning_preset: u32,
+    #[serde(default)]
+    pub nvenc_split_encode_mode: u32,
     pub nvenc_multi_pass: u32,
     pub nvenc_adaptive_quantization_mode: u32,
     pub nvenc_low_delay_key_frame_scale: i64,
@@ -595,6 +597,56 @@ fn json_session_settings_to_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nvenc_split_defaults_to_auto_in_old_settings() {
+        let settings = SessionConfig::default().to_settings();
+        let nvenc = settings.video.encoder_config.nvenc;
+        assert_eq!(nvenc.split_encode_mode, NvencSplitEncodeMode::Auto);
+        let mut old = json::to_value(nvenc).unwrap();
+        old.as_object_mut().unwrap().remove("split_encode_mode");
+        let restored: NvencConfig = json::from_value(old).unwrap();
+        assert_eq!(restored.split_encode_mode, NvencSplitEncodeMode::Auto);
+    }
+
+    #[test]
+    fn nvenc_split_modes_serialize_and_map_to_api() {
+        for (mode, name, api_value) in [
+            (NvencSplitEncodeMode::Auto, "Auto", 0),
+            (NvencSplitEncodeMode::ForceTwo, "ForceTwo", 2),
+            (NvencSplitEncodeMode::Disabled, "Disabled", 15),
+        ] {
+            assert_eq!(json::to_value(&mode).unwrap(), json::json!(name));
+            let restored: NvencSplitEncodeMode = json::from_value(json::json!(name)).unwrap();
+            assert_eq!(restored, mode);
+            assert_eq!(restored as u32, api_value);
+        }
+    }
+
+    #[test]
+    fn nvenc_split_session_migration_and_selection() {
+        let mut old = json::to_value(SessionConfig::default()).unwrap();
+        old["openvr_config"]
+            .as_object_mut()
+            .unwrap()
+            .remove("nvenc_split_encode_mode");
+        let nvenc = &mut old["session_settings"]["video"]["encoder_config"]["nvenc"];
+        nvenc.as_object_mut().unwrap().remove("split_encode_mode");
+        let mut session = SessionConfig::default();
+        session.merge_from_json(&old).unwrap();
+        assert_eq!(
+            session.to_settings().video.encoder_config.nvenc.split_encode_mode,
+            NvencSplitEncodeMode::Auto
+        );
+        let mut selected = json::to_value(&session).unwrap();
+        selected["session_settings"]["video"]["encoder_config"]["nvenc"]["split_encode_mode"]["variant"] =
+            json::json!("ForceTwo");
+        session.merge_from_json(&selected).unwrap();
+        assert_eq!(
+            session.to_settings().video.encoder_config.nvenc.split_encode_mode,
+            NvencSplitEncodeMode::ForceTwo
+        );
+    }
 
     #[test]
     fn test_manual_session_to_settings() {
