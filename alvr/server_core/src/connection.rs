@@ -174,6 +174,8 @@ pub fn contruct_openvr_config(session: &SessionConfig) -> OpenvrConfig {
         filler_data: settings.video.encoder_config.filler_data,
         entropy_coding: settings.video.encoder_config.entropy_coding as u32,
         force_hdr_srgb_correction: hdr_controls.force_hdr_srgb_correction,
+        hdr_transfer: hdr_controls.transfer,
+        hdr_reference_white_nits: hdr_controls.reference_white_nits,
         clamp_hdr_extended_range: hdr_controls.clamp_hdr_extended_range,
         enable_amf_pre_analysis: amf_controls.enable_pre_analysis,
         enable_vbaq: settings.video.encoder_config.enable_vbaq,

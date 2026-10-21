@@ -46,6 +46,10 @@ pub struct OpenvrConfig {
     pub use_full_range_encoding: bool,
     pub encoding_gamma: f32,
     pub enable_hdr: bool,
+    #[serde(default)]
+    pub hdr_transfer: HdrTransfer,
+    #[serde(default = "default_reference_white_nits")]
+    pub hdr_reference_white_nits: f32,
     pub force_hdr_srgb_correction: bool,
     pub clamp_hdr_extended_range: bool,
     pub enable_amf_pre_analysis: bool,
@@ -152,6 +156,7 @@ impl Default for SessionConfig {
                 target_eye_resolution_height: 900,
                 adapter_index: 0,
                 refresh_rate: 60,
+                hdr_reference_white_nits: default_reference_white_nits(),
                 controllers_enabled: false,
                 body_tracking_vive_enabled: false,
                 enable_foveated_encoding: false,

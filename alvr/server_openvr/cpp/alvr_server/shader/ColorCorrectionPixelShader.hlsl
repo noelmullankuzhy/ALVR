@@ -7,7 +7,7 @@ cbuffer ColorCorrectionParams {
 	float saturation;
 	float gamma;
 	float sharpening;
-	float _align;
+	float pqEnabled;
 };
 
 const static float DX = 1. / renderWidth;
@@ -47,7 +47,7 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target{
 	pixel = (pixel - 0.5) * contrast + 0.5f;                                                        // contast
     pixel = blendLighten(lerp(dot(pixel, float3(0.299, 0.587, 0.114)), pixel, saturation), pixel);  // saturation + lighten only
 
-	pixel = clamp(pixel, 0, 1);
+	pixel = pqEnabled != 0.0 ? max(pixel, 0) : clamp(pixel, 0, 1);
 	pixel = pow(pixel, 1. / gamma);                                                                 // gamma
 
 	return float4(pixel, 1);

@@ -45,6 +45,8 @@ public:
     bool m_useFullRangeEncoding;
     double m_encodingGamma;
     bool m_enableHdr;
+    bool m_hdrPq = false;
+    float m_hdrReferenceWhiteNits = 203.0f;
     bool m_forceHdrSrgbCorrection;
     bool m_clampHdrExtendedRange;
     bool m_enableAmfPreAnalysis;

@@ -1,4 +1,5 @@
 #include "CEncoder.h"
+#include "alvr_server/Hdr10.h"
 
 CEncoder::CEncoder()
     : m_bExiting(false)
@@ -14,10 +15,40 @@ CEncoder::~CEncoder() {
 }
 
 void CEncoder::Initialize(std::shared_ptr<CD3DRender> d3dRender) {
+    auto& settings = Settings::Instance();
+    if (settings.m_hdrPq) {
+        ComPtr<IDXGIDevice> device;
+        ComPtr<IDXGIAdapter> adapter;
+        DXGI_ADAPTER_DESC desc = {};
+        const bool nvenc = SUCCEEDED(d3dRender->GetDevice()->QueryInterface(IID_PPV_ARGS(&device)))
+            && SUCCEEDED(device->GetAdapter(&adapter)) && SUCCEEDED(adapter->GetDesc(&desc))
+            && desc.VendorId == 0x10de;
+        settings.m_hdrPq = hdr10::SupportsPq(nvenc, settings.m_codec == ALVR_CODEC_HEVC,
+            settings.m_use10bitEncoder, settings.m_force_sw_encoding);
+        if (!settings.m_hdrPq)
+            Info("HDR PQ unavailable: requires Windows NVENC 10-bit HEVC without software encoding; using Srgb.");
+    }
     m_FrameRender = std::make_shared<FrameRender>(d3dRender);
     m_FrameRender->Startup();
     uint32_t encoderWidth, encoderHeight;
     m_FrameRender->GetEncodingResolution(&encoderWidth, &encoderHeight);
+
+    if (settings.m_hdrPq) {
+        try {
+            m_videoEncoder = std::make_shared<VideoEncoderNVENC>(d3dRender, encoderWidth, encoderHeight);
+            m_videoEncoder->Initialize();
+            if (settings.m_clampHdrExtendedRange)
+                Info("HDR PQ: ignoring clamp_hdr_extended_range to preserve values above 1.0.");
+            return;
+        } catch (Exception e) {
+            Info("HDR PQ unavailable: NVENC initialization failed (%s); using Srgb.", e.what());
+            m_videoEncoder.reset();
+            settings.m_hdrPq = false;
+            m_FrameRender = std::make_shared<FrameRender>(d3dRender);
+            m_FrameRender->Startup();
+            m_FrameRender->GetEncodingResolution(&encoderWidth, &encoderHeight);
+        }
+    }
 
     Exception vceException;
     Exception nvencException;
