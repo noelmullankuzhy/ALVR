@@ -63,13 +63,21 @@ pub fn default_source_button_set(
         .clone()
 }
 
-// Applies the client's declared interaction profile to the automatic mapping manager
+// Applies the client's declared interaction profile to the automatic mapping manager. A declaration
+// that confirms the current source set keeps the manager, so held buttons are released correctly.
 pub fn apply_declared_button_set(
     manager: &mut Option<ButtonMappingManager>,
     declared_source: &HashSet<u64>,
     controllers_emulation_mode: &ControllersEmulationMode,
     button_mapping_config: &AutomaticButtonMappingConfig,
 ) {
+    if manager
+        .as_ref()
+        .is_some_and(|m| m.automatic_source.as_ref() == Some(declared_source))
+    {
+        return;
+    }
+
     *manager = Some(ButtonMappingManager::new_automatic(
         declared_source,
         controllers_emulation_mode,
@@ -587,6 +595,8 @@ pub struct ButtonMappingManager {
     mappings: HashMap<u64, Vec<BindingTarget>>,
     binary_source_states: HashMap<u64, bool>,
     hysteresis_states: HashMap<u64, HashMap<u64, bool>>,
+    // Source set of automatic mappings, None for manual mappings
+    automatic_source: Option<HashSet<u64>>,
 }
 
 impl ButtonMappingManager {
@@ -600,6 +610,7 @@ impl ButtonMappingManager {
             mappings: automatic_bindings(source, &button_set, button_mapping_config),
             binary_source_states: HashMap::new(),
             hysteresis_states: HashMap::new(),
+            automatic_source: Some(source.clone()),
         }
     }
 
@@ -629,6 +640,7 @@ impl ButtonMappingManager {
             mappings,
             binary_source_states: HashMap::new(),
             hysteresis_states: HashMap::new(),
+            automatic_source: None,
         }
     }
 
