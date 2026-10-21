@@ -66,19 +66,37 @@ directory/growth budget at major stages and every 15 seconds during Cargo builds
 An over-budget build terminates only its own Cargo process tree. Old outputs count toward the budget;
 remove unneeded build outputs before accumulating many commits.
 
-Verification on 21 October 2026: the first cold attempt took **184 seconds**
-end to end (181.66 seconds on the PC), including Rust/LLVM installation and
-dependency downloads. It exited 1: the exact develop commit
-`e3fd448029c795b1b2d5835c84c6588bf01bae0d` fails with Rust E0004 because
-`ControllersEmulationMode::PSVR2Sense` is missing from matches at
-`alvr/server_core/src/connection.rs:80` and
-`alvr/server_core/src/input_mapping.rs:12`. No source patch was applied.
-The second run was not attempted: repairing the requested source commit requires
-a GM decision. No streamer package or binary version/hash has been verified.
-Toolchains and downloaded/compiled Cargo dependencies remain cached for a retry.
-The final script's Cargo proxy and periodic budget monitor have not reached a
-successful end-to-end verification. Failure evidence is in Mac
-`local-scratch/pc-build-streamer/first-remote.log` and `first-result.json`.
+Verification on 21 October 2026: unmodified develop
+`e3fd448029c795b1b2d5835c84c6588bf01bae0d` failed with E0004 in the two
+server_core matches missing PSVR2Sense. The GM authorized backporting upstream
+`669b5411` on `feature/psvr2-server-backport`, producing
+`d45b991cefcc5a22e3fc42c515e5f6bbb6ac3230`. Only the inputs.rs Lazy conflict
+needed resolution; settings.rs already contained the variant. No extra source
+or resource files were added: the upstream tree contains no PSVR2 model/profile
+assets to import, so runtime PSVR2 resource availability remains unverified.
+
+Both release binaries compiled on the first backport attempt (109 seconds
+end to end), but PowerShell returned a null ExitCode from Start-Process and
+the wrapper reported failure. The pipeline now starts Diagnostics.Process
+directly, retaining its handle, setting the source working directory and draining
+both output pipes concurrently before reporting the real exit code. Budget
+monitoring remains active during compilation; captured Cargo output is printed
+after the process exits.
+
+Two consecutive runs of the corrected pipeline both exited **0** in **15 seconds**
+each, with `ok: true` and the exact backport head. Both reused the existing
+Rust 1.82.0/LLVM tools and Cargo artifacts, with no tool installation or crate
+downloads. Dashboard product/file version is **20.14.1**; the driver has no
+Windows version resource. Both runs produced identical SHA256 values:
+
+| File | SHA256 |
+| --- | --- |
+| `bin\win64\driver_alvr_server.dll` | `464336a9dbdc87fc28177cd7959c6a5ae6ae1a2e688f6411549435f173dc8f76` |
+| `ALVR Dashboard.exe` | `b00cbacf9a96e40e6823908a37330b1c79de62cbae9bdae648f32e59f517d9af` |
+
+Evidence: Mac `local-scratch/pc-build-streamer/psvr2-run1.json`,
+`psvr2-run2.json`, and matching `.log` files. Earlier failure logs remain there.
+No built executable was launched; runtime streaming was not tested.
 
 To remove this pipeline's PC files, delete only
 `C:\Users\noelm\claude-tmp\alvr-build` when no build is active. The self-contained
