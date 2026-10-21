@@ -14,6 +14,7 @@ fn compile_p010_shaders(out_dir: &std::path::Path) {
         .unwrap_or_else(|| PathBuf::from("fxc.exe"));
     for (file, entry, name) in [
         ("sdr_p010.hlsl", "main", "SDR_P010"),
+        ("pq_p010.hlsl", "main", "PQ_P010"),
         ("FrameRender.fx", "PS", "PQ_FRAME"),
         ("ColorCorrectionPixelShader.hlsl", "main", "PQ_CORRECTION"),
     ] {

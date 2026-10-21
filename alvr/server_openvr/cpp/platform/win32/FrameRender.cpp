@@ -4,6 +4,7 @@
 #include "alvr_server/Utils.h"
 #include "alvr_server/bindings.h"
 #include "sdr_p010_shader.h"
+#include "pq_p010_shader.h"
 #include "pq_frame_shader.h"
 #include "pq_correction_shader.h"
 #include "alvr_server/Hdr10.h"
@@ -97,27 +98,14 @@ FrameRender::FrameRender(std::shared_ptr<CD3DRender> pD3DRender)
 
 FrameRender::~FrameRender() { }
 
-bool FrameRender::Startup() {
+bool FrameRender::Startup(const hdr10::InputPlan& plan) {
     if (m_pStagingTexture) {
         return true;
     }
 
-    // Other encoders retain their existing RGB input contract.
-    ComPtr<IDXGIDevice> dxgiDevice;
-    ComPtr<IDXGIAdapter> adapter;
-    DXGI_ADAPTER_DESC adapterDesc = {};
-    if (SUCCEEDED(m_pD3DRender->GetDevice()->QueryInterface(IID_PPV_ARGS(&dxgiDevice)))
-        && SUCCEEDED(dxgiDevice->GetAdapter(&adapter))
-        && SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
-        m_sdrP010 = adapterDesc.VendorId == 0x10de
-            && Settings::Instance().m_use10bitEncoder
-            && (!Settings::Instance().m_enableHdr || Settings::Instance().m_hdrPq);
-#ifdef ALVR_GPL
-        m_sdrP010 = m_sdrP010 && !Settings::Instance().m_force_sw_encoding;
-#endif
-    }
-    m_floatSdr = Settings::Instance().m_hdrPq
-        || (m_sdrP010 && Settings::Instance().m_highPrecisionSdr);
+    // The initialized encoder determines the input contract, never the adapter.
+    m_sdrP010 = plan.p010;
+    m_floatSdr = plan.floatComposition;
 
     //
     // Create staging texture
@@ -588,11 +576,19 @@ void FrameRender::InitializeSdrP010(ID3D11VertexShader* quadVertexShader) {
         m_pD3DRender->GetDevice(), width, height, DXGI_FORMAT_P010
     ));
     const bool full = Settings::Instance().m_useFullRangeEncoding;
-    const auto params = hdr10::MakeShaderParams(
-        Settings::Instance().m_hdrPq, full, Settings::Instance().m_hdrReferenceWhiteNits);
     ComPtr<ID3D11Buffer> buffer;
-    buffer.Attach(CreateBuffer(m_pD3DRender->GetDevice(), params));
     std::vector<uint8_t> shader(SDR_P010_SHADER, SDR_P010_SHADER + sizeof(SDR_P010_SHADER));
+    if (Settings::Instance().m_hdrPq) {
+        const auto params = hdr10::MakeShaderParams(Settings::Instance().m_hdrReferenceWhiteNits);
+        buffer.Attach(CreateBuffer(m_pD3DRender->GetDevice(), params));
+        shader.assign(PQ_P010_SHADER, PQ_P010_SHADER + sizeof(PQ_P010_SHADER));
+    } else {
+        struct SdrP010Params { float yOffset, yScale, chromaScale, padding; };
+        const SdrP010Params params = {
+            full ? 0.0f : 64.0f, full ? 1023.0f : 876.0f, full ? 1023.0f : 896.0f, 0.0f
+        };
+        buffer.Attach(CreateBuffer(m_pD3DRender->GetDevice(), params));
+    }
     m_yuvPipeline = std::make_unique<RenderPipelineYUV>(m_pD3DRender->GetDevice());
     m_yuvPipeline->Initialize(
         { m_pStagingTexture.Get() }, quadVertexShader, shader, texture.Get(), buffer.Get()
@@ -950,8 +946,8 @@ bool FrameRender::RenderFrame(
 ComPtr<ID3D11Texture2D> FrameRender::GetTexture() { return m_pStagingTexture; }
 
 void FrameRender::GetEncodingResolution(uint32_t* width, uint32_t* height) {
-    if (enableFFE) {
-        m_ffr->GetOptimizedResolution(width, height);
+    if (Settings::Instance().m_enableFoveatedEncoding) {
+        FFR::GetOptimizedResolution(width, height);
     } else {
         *width = Settings::Instance().m_renderWidth;
         *height = Settings::Instance().m_renderHeight;
