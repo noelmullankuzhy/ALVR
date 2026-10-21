@@ -16,6 +16,7 @@
 #include <windows.h>
 
 #include "FFR.h"
+#include "alvr_server/Hdr10.h"
 #include "alvr_server/openvr_driver_wrap.h"
 #include "d3d-render-utils/RenderPipelineYUV.h"
 #include "shared/d3drender.h"
@@ -44,7 +45,7 @@ public:
     FrameRender(std::shared_ptr<CD3DRender> pD3DRender);
     virtual ~FrameRender();
 
-    bool Startup();
+    bool Startup(const hdr10::InputPlan& plan);
     void SetViewsConfig(
         vr::HmdRect2_t projLeft,
         vr::HmdMatrix34_t eyeToHeadLeft,
@@ -60,7 +61,7 @@ public:
         const std::string& message,
         const std::string& debugText
     );
-    void GetEncodingResolution(uint32_t* width, uint32_t* height);
+    static void GetEncodingResolution(uint32_t* width, uint32_t* height);
 
     ComPtr<ID3D11Texture2D> GetTexture();
 

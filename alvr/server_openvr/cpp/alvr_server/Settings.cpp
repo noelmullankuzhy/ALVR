@@ -2,6 +2,7 @@
 #include "Logger.h"
 #include "bindings.h"
 #include <cstdlib>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <streambuf>
@@ -72,6 +73,17 @@ void Settings::Load() {
         m_useFullRangeEncoding = config.get("use_full_range_encoding").get<bool>();
         m_encodingGamma = config.get("encoding_gamma").get<double>();
         m_enableHdr = config.get("enable_hdr").get<bool>();
+        m_hdrPq = config.get("hdr_transfer").is<std::string>()
+            && config.get("hdr_transfer").get<std::string>() == "Pq";
+        m_hdrReferenceWhiteNits = config.get("hdr_reference_white_nits").is<double>()
+            ? std::clamp(float(config.get("hdr_reference_white_nits").get<double>()), 80.0f, 400.0f)
+            : 203.0f;
+#ifndef _WIN32
+        if (m_hdrPq) {
+            Info("HDR PQ unavailable: requires Windows NVENC 10-bit HEVC; using Srgb.");
+            m_hdrPq = false;
+        }
+#endif
         m_forceHdrSrgbCorrection = config.get("force_hdr_srgb_correction").get<bool>();
         m_clampHdrExtendedRange = config.get("clamp_hdr_extended_range").get<bool>();
         m_enableAmfPreAnalysis = config.get("enable_amf_pre_analysis").get<bool>();

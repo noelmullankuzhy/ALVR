@@ -4,6 +4,10 @@
 #include "alvr_server/Utils.h"
 #include "alvr_server/bindings.h"
 #include "sdr_p010_shader.h"
+#include "pq_p010_shader.h"
+#include "pq_frame_shader.h"
+#include "pq_correction_shader.h"
+#include "alvr_server/Hdr10.h"
 
 extern uint64_t g_DriverTestMode;
 
@@ -94,25 +98,14 @@ FrameRender::FrameRender(std::shared_ptr<CD3DRender> pD3DRender)
 
 FrameRender::~FrameRender() { }
 
-bool FrameRender::Startup() {
+bool FrameRender::Startup(const hdr10::InputPlan& plan) {
     if (m_pStagingTexture) {
         return true;
     }
 
-    // Other encoders retain their existing RGB input contract.
-    ComPtr<IDXGIDevice> dxgiDevice;
-    ComPtr<IDXGIAdapter> adapter;
-    DXGI_ADAPTER_DESC adapterDesc = {};
-    if (SUCCEEDED(m_pD3DRender->GetDevice()->QueryInterface(IID_PPV_ARGS(&dxgiDevice)))
-        && SUCCEEDED(dxgiDevice->GetAdapter(&adapter))
-        && SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
-        m_sdrP010 = adapterDesc.VendorId == 0x10de
-            && Settings::Instance().m_use10bitEncoder && !Settings::Instance().m_enableHdr;
-#ifdef ALVR_GPL
-        m_sdrP010 = m_sdrP010 && !Settings::Instance().m_force_sw_encoding;
-#endif
-    }
-    m_floatSdr = m_sdrP010 && Settings::Instance().m_highPrecisionSdr;
+    // The initialized encoder determines the input contract, never the adapter.
+    m_sdrP010 = plan.p010;
+    m_floatSdr = plan.floatComposition;
 
     //
     // Create staging texture
@@ -232,6 +225,8 @@ bool FrameRender::Startup() {
     std::vector<uint8_t> pshader(
         FRAME_RENDER_PS_CSO_PTR, FRAME_RENDER_PS_CSO_PTR + FRAME_RENDER_PS_CSO_LEN
     );
+    if (Settings::Instance().m_hdrPq)
+        pshader.assign(PQ_FRAME_SHADER, PQ_FRAME_SHADER + sizeof(PQ_FRAME_SHADER));
     hr = m_pD3DRender->GetDevice()->CreatePixelShader(
         (const DWORD*)&pshader[0], pshader.size(), NULL, &m_pPixelShader
     );
@@ -269,12 +264,13 @@ bool FrameRender::Startup() {
     //
     struct FrameRenderBuffer {
         float encodingGamma;
-        float _align0;
+        float pqEnabled;
         float _align1;
         float _align2;
     };
     FrameRenderBuffer frameRenderStruct
-        = { (float)(1.0 / Settings::Instance().m_encodingGamma), 0.0f, 0.0f, 0.0f };
+        = { (float)(1.0 / Settings::Instance().m_encodingGamma),
+            Settings::Instance().m_hdrPq ? 1.0f : 0.0f, 0.0f, 0.0f };
     m_pFrameRenderCBuffer = CreateBuffer(m_pD3DRender->GetDevice(), frameRenderStruct);
 
     //
@@ -414,6 +410,9 @@ bool FrameRender::Startup() {
         std::vector<uint8_t> colorCorrectionShaderCSO(
             COLOR_CORRECTION_CSO_PTR, COLOR_CORRECTION_CSO_PTR + COLOR_CORRECTION_CSO_LEN
         );
+        if (Settings::Instance().m_hdrPq)
+            colorCorrectionShaderCSO.assign(
+                PQ_CORRECTION_SHADER, PQ_CORRECTION_SHADER + sizeof(PQ_CORRECTION_SHADER));
 
         ComPtr<ID3D11Texture2D> colorCorrectedTexture = CreateTexture(
             m_pD3DRender->GetDevice(),
@@ -431,13 +430,13 @@ bool FrameRender::Startup() {
             float saturation;
             float gamma;
             float sharpening;
-            float _align;
+            float pqEnabled;
         };
         ColorCorrection colorCorrectionStruct = {
             (float)Settings::Instance().m_renderWidth, (float)Settings::Instance().m_renderHeight,
             Settings::Instance().m_brightness,         Settings::Instance().m_contrast + 1.f,
             Settings::Instance().m_saturation + 1.f,   Settings::Instance().m_gamma,
-            Settings::Instance().m_sharpening
+            Settings::Instance().m_sharpening, Settings::Instance().m_hdrPq ? 1.0f : 0.0f
         };
         ComPtr<ID3D11Buffer> colorCorrectionBuffer
             = CreateBuffer(m_pD3DRender->GetDevice(), colorCorrectionStruct);
@@ -462,7 +461,7 @@ bool FrameRender::Startup() {
         m_pStagingTexture = m_ffr->GetOutputTexture();
     }
 
-    if (Settings::Instance().m_enableHdr) {
+    if (Settings::Instance().m_enableHdr && !Settings::Instance().m_hdrPq) {
         std::vector<uint8_t> yuv420ShaderCSO(
             RGBTOYUV420_CSO_PTR, RGBTOYUV420_CSO_PTR + RGBTOYUV420_CSO_LEN
         );
@@ -576,23 +575,30 @@ void FrameRender::InitializeSdrP010(ID3D11VertexShader* quadVertexShader) {
     texture.Attach(CreateTexture(
         m_pD3DRender->GetDevice(), width, height, DXGI_FORMAT_P010
     ));
-    struct SdrP010Params {
-        float yOffset, yScale, chromaScale, padding;
-    };
     const bool full = Settings::Instance().m_useFullRangeEncoding;
-    const SdrP010Params params = {
-        full ? 0.0f : 64.0f, full ? 1023.0f : 876.0f, full ? 1023.0f : 896.0f, 0.0f
-    };
     ComPtr<ID3D11Buffer> buffer;
-    buffer.Attach(CreateBuffer(m_pD3DRender->GetDevice(), params));
     std::vector<uint8_t> shader(SDR_P010_SHADER, SDR_P010_SHADER + sizeof(SDR_P010_SHADER));
+    if (Settings::Instance().m_hdrPq) {
+        const auto params = hdr10::MakeShaderParams(Settings::Instance().m_hdrReferenceWhiteNits);
+        buffer.Attach(CreateBuffer(m_pD3DRender->GetDevice(), params));
+        shader.assign(PQ_P010_SHADER, PQ_P010_SHADER + sizeof(PQ_P010_SHADER));
+    } else {
+        struct SdrP010Params { float yOffset, yScale, chromaScale, padding; };
+        const SdrP010Params params = {
+            full ? 0.0f : 64.0f, full ? 1023.0f : 876.0f, full ? 1023.0f : 896.0f, 0.0f
+        };
+        buffer.Attach(CreateBuffer(m_pD3DRender->GetDevice(), params));
+    }
     m_yuvPipeline = std::make_unique<RenderPipelineYUV>(m_pD3DRender->GetDevice());
     m_yuvPipeline->Initialize(
         { m_pStagingTexture.Get() }, quadVertexShader, shader, texture.Get(), buffer.Get()
     );
     m_yuvPipeline->UseSeparatePlanePasses();
     m_pStagingTexture = texture;
-    Info("SDR pipeline: composition/correction/FFR=%s -> P010 (YUV420_10BIT), BT.709/sRGB, %s range",
+    if (Settings::Instance().m_hdrPq)
+        Info("HDR10 pipeline: float16 composition/correction/FFR -> BT.2020/PQ limited P010, white=%.0f nits",
+             Settings::Instance().m_hdrReferenceWhiteNits);
+    else Info("SDR pipeline: composition/correction/FFR=%s -> P010 (YUV420_10BIT), BT.709/sRGB, %s range",
          m_floatSdr ? "R16G16B16A16_FLOAT" : "R8G8B8A8_UNORM_SRGB", full ? "full" : "limited");
 }
 
@@ -940,8 +946,8 @@ bool FrameRender::RenderFrame(
 ComPtr<ID3D11Texture2D> FrameRender::GetTexture() { return m_pStagingTexture; }
 
 void FrameRender::GetEncodingResolution(uint32_t* width, uint32_t* height) {
-    if (enableFFE) {
-        m_ffr->GetOptimizedResolution(width, height);
+    if (Settings::Instance().m_enableFoveatedEncoding) {
+        FFR::GetOptimizedResolution(width, height);
     } else {
         *width = Settings::Instance().m_renderWidth;
         *height = Settings::Instance().m_renderHeight;

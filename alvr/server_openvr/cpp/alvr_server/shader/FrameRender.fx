@@ -1,6 +1,6 @@
 cbuffer FrameRenderParams {
 	float encodingGamma;
-	float _padding0;
+	float pqEnabled;
 	float _padding1;
 	float _padding2;
 };
@@ -84,6 +84,8 @@ float4 PS(PS_INPUT input) : SV_Target
 		color = txLeft.Sample(samLinear, input.Tex);
 	}
 	
+	// PQ sources are scene-linear; ignore legacy gamma, sRGB and clamp controls.
+	if (pqEnabled != 0.0) return color;
 	if (shouldClamp == (uint)1) {
 		color = clamp(color, 0.0, 1.0);
 	}

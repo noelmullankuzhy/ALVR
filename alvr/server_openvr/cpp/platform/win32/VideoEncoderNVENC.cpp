@@ -5,12 +5,13 @@
 #include "alvr_server/Settings.h"
 #include "alvr_server/Utils.h"
 
-static void ValidateSdr10bitInput(ID3D11Texture2D* texture) {
-    if (Settings::Instance().m_use10bitEncoder && !Settings::Instance().m_enableHdr) {
+static void Validate10bitInput(ID3D11Texture2D* texture) {
+    if (Settings::Instance().m_use10bitEncoder
+        && (!Settings::Instance().m_enableHdr || Settings::Instance().m_hdrPq)) {
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
         if (desc.Format != DXGI_FORMAT_P010) {
-            throw MakeException("SDR 10-bit NVENC input must be P010; got DXGI format %u", desc.Format);
+            throw MakeException("10-bit NVENC input must be P010; got DXGI format %u", desc.Format);
         }
     }
 }
@@ -140,7 +141,7 @@ void VideoEncoderNVENC::Transmit(
 
     ID3D11Texture2D* pInputTexture
         = reinterpret_cast<ID3D11Texture2D*>(encoderInputFrame->inputPtr);
-    ValidateSdr10bitInput(pTexture);
+    Validate10bitInput(pTexture);
     m_pD3DRender->GetContext()->CopyResource(pInputTexture, pTexture);
 
     NV_ENC_PIC_PARAMS picParams = {};
@@ -335,7 +336,7 @@ void VideoEncoderNVENC::FillEncodeConfig(
 
         if (Settings::Instance().m_use10bitEncoder) {
             encodeConfig.encodeCodecConfig.hevcConfig.pixelBitDepthMinus8 = 2;
-            if (!Settings::Instance().m_enableHdr) {
+            if (!Settings::Instance().m_enableHdr || Settings::Instance().m_hdrPq) {
                 encodeConfig.profileGUID = NV_ENC_HEVC_PROFILE_MAIN10_GUID;
             }
         }
@@ -349,7 +350,15 @@ void VideoEncoderNVENC::FillEncodeConfig(
         config.hevcVUIParameters.videoFullRangeFlag
             = Settings::Instance().m_useFullRangeEncoding ? 1 : 0;
         config.hevcVUIParameters.colourDescriptionPresentFlag = 1;
-        if (Settings::Instance().m_enableHdr) {
+        if (Settings::Instance().m_hdrPq) {
+            config.hevcVUIParameters.videoFullRangeFlag = 0;
+            config.hevcVUIParameters.colourPrimaries = NV_ENC_VUI_COLOR_PRIMARIES_BT2020;
+            config.hevcVUIParameters.transferCharacteristics = NV_ENC_VUI_TRANSFER_CHARACTERISTIC_SMPTE2084;
+            config.hevcVUIParameters.colourMatrix = NV_ENC_VUI_MATRIX_COEFFS_BT2020_NCL;
+            config.hevcVUIParameters.chromaSampleLocationFlag = 1;
+            config.hevcVUIParameters.chromaSampleLocationTop = 1;
+            config.hevcVUIParameters.chromaSampleLocationBot = 1;
+        } else if (Settings::Instance().m_enableHdr) {
             config.hevcVUIParameters.colourPrimaries = NV_ENC_VUI_COLOR_PRIMARIES_BT2020;
             config.hevcVUIParameters.transferCharacteristics
                 = NV_ENC_VUI_TRANSFER_CHARACTERISTIC_SRGB;

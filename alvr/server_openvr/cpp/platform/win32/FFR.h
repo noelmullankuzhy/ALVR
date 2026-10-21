@@ -7,7 +7,7 @@ public:
     FFR(ID3D11Device* device);
     void Initialize(ID3D11Texture2D* compositionTexture);
     void Render();
-    void GetOptimizedResolution(uint32_t* width, uint32_t* height);
+    static void GetOptimizedResolution(uint32_t* width, uint32_t* height);
     ID3D11Texture2D* GetOutputTexture();
 
 private:

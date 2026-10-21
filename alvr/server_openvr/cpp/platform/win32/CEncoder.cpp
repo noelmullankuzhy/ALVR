@@ -1,4 +1,5 @@
 #include "CEncoder.h"
+#include "alvr_server/Hdr10.h"
 
 CEncoder::CEncoder()
     : m_bExiting(false)
@@ -14,67 +15,63 @@ CEncoder::~CEncoder() {
 }
 
 void CEncoder::Initialize(std::shared_ptr<CD3DRender> d3dRender) {
-    m_FrameRender = std::make_shared<FrameRender>(d3dRender);
-    m_FrameRender->Startup();
+    using hdr10::Backend;
+    auto& settings = Settings::Instance();
+    const bool requestedPq = settings.m_hdrPq, requestedHdr = settings.m_enableHdr;
+    const bool hevc = settings.m_codec == ALVR_CODEC_HEVC;
+    const bool preferPq = requestedPq && hevc
+        && settings.m_use10bitEncoder && !settings.m_force_sw_encoding;
     uint32_t encoderWidth, encoderHeight;
-    m_FrameRender->GetEncodingResolution(&encoderWidth, &encoderHeight);
-
-    Exception vceException;
-    Exception nvencException;
-#ifdef ALVR_GPL
-    Exception swException;
-    if (Settings::Instance().m_force_sw_encoding) {
+    FrameRender::GetEncodingResolution(&encoderWidth, &encoderHeight);
+    std::string errors;
+    const auto attempt = [&](Backend backend) {
+        const auto plan = hdr10::MakeInputPlan(backend, preferPq, hevc,
+            settings.m_use10bitEncoder, requestedHdr, settings.m_highPrecisionSdr);
+        if (requestedPq) settings.m_hdrPq = plan.pq;
+        const char* name = backend == Backend::Nvenc ? "NVENC" : backend == Backend::Amf ? "AMF" : "software";
         try {
-            Debug("Try to use VideoEncoderSW.\n");
-            m_videoEncoder
-                = std::make_shared<VideoEncoderSW>(d3dRender, encoderWidth, encoderHeight);
-            m_videoEncoder->Initialize();
-            return;
-        } catch (Exception e) {
-            swException = e;
-        }
-    }
+            switch (backend) {
+            case Backend::Nvenc:
+                m_videoEncoder = std::make_shared<VideoEncoderNVENC>(d3dRender, encoderWidth, encoderHeight);
+                break;
+            case Backend::Amf:
+                m_videoEncoder = std::make_shared<VideoEncoderAMF>(d3dRender, encoderWidth, encoderHeight);
+                break;
+#ifdef ALVR_GPL
+            case Backend::Software:
+                m_videoEncoder = std::make_shared<VideoEncoderSW>(d3dRender, encoderWidth, encoderHeight);
+                break;
 #endif
-
-    try {
-        Debug("Try to use VideoEncoderAMF.\n");
-        m_videoEncoder = std::make_shared<VideoEncoderAMF>(d3dRender, encoderWidth, encoderHeight);
-        m_videoEncoder->Initialize();
-        return;
-    } catch (Exception e) {
-        vceException = e;
-    }
-    try {
-        Debug("Try to use VideoEncoderNVENC.\n");
-        m_videoEncoder
-            = std::make_shared<VideoEncoderNVENC>(d3dRender, encoderWidth, encoderHeight);
-        m_videoEncoder->Initialize();
-        return;
-    } catch (Exception e) {
-        nvencException = e;
+            default: return false;
+            }
+            m_videoEncoder->Initialize();
+        } catch (const std::exception& e) {
+            errors += std::string(name) + ": " + e.what() + "; ";
+            m_videoEncoder.reset();
+            return false;
+        }
+        // Backend and its signalling are final before any conversion textures exist.
+        m_FrameRender = std::make_shared<FrameRender>(d3dRender);
+        if (!m_FrameRender->Startup(plan))
+            throw MakeException("Failed to create %s frame conversion pipeline", name);
+        if (requestedPq && !plan.pq)
+            Info("HDR PQ unavailable: selected %s (requires NVENC HEVC 10-bit); using Srgb. %s", name, errors.c_str());
+        if (plan.pq && settings.m_clampHdrExtendedRange)
+            Info("HDR PQ: ignoring clamp_hdr_extended_range to preserve values above 1.0.");
+        return true;
+    };
+#ifdef ALVR_GPL
+    if (settings.m_force_sw_encoding && attempt(Backend::Software)) return;
+#endif
+    if (preferPq) {
+        if (attempt(Backend::Nvenc) || attempt(Backend::Amf)) return;
+    } else {
+        if (attempt(Backend::Amf) || attempt(Backend::Nvenc)) return;
     }
 #ifdef ALVR_GPL
-    try {
-        Debug("Try to use VideoEncoderSW.\n");
-        m_videoEncoder = std::make_shared<VideoEncoderSW>(d3dRender, encoderWidth, encoderHeight);
-        m_videoEncoder->Initialize();
-        return;
-    } catch (Exception e) {
-        swException = e;
-    }
-    throw MakeException(
-        "All VideoEncoder are not available. VCE: %s, NVENC: %s, SW: %s",
-        vceException.what(),
-        nvencException.what(),
-        swException.what()
-    );
-#else
-    throw MakeException(
-        "All VideoEncoder are not available. VCE: %s, NVENC: %s",
-        vceException.what(),
-        nvencException.what()
-    );
+    if (attempt(Backend::Software)) return;
 #endif
+    throw MakeException("All video encoders are unavailable: %s", errors.c_str());
 }
 
 void CEncoder::SetViewsConfig(
@@ -99,7 +96,6 @@ bool CEncoder::CopyToStaging(
 ) {
     m_presentationTime = presentationTime;
     m_targetTimestampNs = targetTimestampNs;
-    m_FrameRender->Startup();
 
     m_FrameRender->RenderFrame(
         pTexture, bounds, poses, layerCount, recentering, message, debugText

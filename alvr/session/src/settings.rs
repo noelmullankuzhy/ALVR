@@ -221,9 +221,34 @@ pub struct SoftwareEncodingConfig {
     pub thread_count: u32,
 }
 
+#[derive(SettingsSchema, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+pub enum HdrTransfer {
+    #[default]
+    Srgb,
+    Pq,
+}
+
+pub fn default_reference_white_nits() -> f32 {
+    203.0
+}
+
 #[derive(SettingsSchema, Serialize, Deserialize, Clone, PartialEq)]
 #[schema(collapsible)]
 pub struct HDRConfig {
+    #[serde(default)]
+    #[schema(strings(
+        help = "PQ HDR10 requires Windows NVENC, HEVC and 10-bit encoding. Uses linear BT.709 composition; extended-range clamping and encoding gamma are ignored."
+    ))]
+    #[schema(flag = "steamvr-restart")]
+    pub transfer: HdrTransfer,
+
+    #[serde(default = "default_reference_white_nits")]
+    #[schema(strings(help = "Luminance of scene-linear 1.0 in PQ mode, in nits."))]
+    #[schema(
+        gui(slider(min = 80.0, max = 400.0, step = 1.0)),
+        flag = "steamvr-restart"
+    )]
+    pub reference_white_nits: f32,
     #[schema(strings(
         display_name = "Enable HDR",
         help = "If the client has no preference, enables compositing VR layers to an RGBA float16 framebuffer, and doing sRGB/YUV conversions in shader code."
@@ -298,7 +323,7 @@ CABAC produces better compression but it's significantly slower and may lead to 
 
     #[schema(strings(
         display_name = "10-bit encoding",
-        help = "Sets the encoder to use 10 bits per channel instead of 8, if the client has no preference. Does not work on Linux with Nvidia"
+        help = "Sets the encoder to use 10 bits per channel instead of 8, if the client has no preference. Required for PQ HDR10 with Windows NVENC HEVC. Does not work on Linux with Nvidia"
     ))]
     #[schema(flag = "steamvr-restart")]
     pub use_10bit: bool,
@@ -1765,6 +1790,10 @@ pub fn session_settings_default() -> SettingsDefault {
                 encoding_gamma: 1.0,
                 server_overrides_encoding_gamma: false,
                 hdr: HDRConfigDefault {
+                    transfer: HdrTransferDefault {
+                        variant: HdrTransferDefaultVariant::Srgb,
+                    },
+                    reference_white_nits: default_reference_white_nits(),
                     gui_collapsed: true,
                     enable_hdr: false,
                     server_overrides_enable_hdr: false,
