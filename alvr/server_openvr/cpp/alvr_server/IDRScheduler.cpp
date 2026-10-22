@@ -1,5 +1,6 @@
 #include "IDRScheduler.h"
 
+#include <algorithm>
 #include <mutex>
 
 #ifndef IDR_SCHEDULER_STANDALONE
@@ -23,13 +24,20 @@ void IDRScheduler::OnStreamStart() {
     m_minIDRFrameInterval = Settings::Instance().m_minimumIdrIntervalMs * 1000;
 #endif
     m_scheduled = false;
+    m_hasLastIDR = false;
     InsertIDR();
 }
 
 void IDRScheduler::InsertIDR() {
     std::unique_lock lock(m_mutex);
 
-    m_insertIDRTime = m_clock() - MIN_IDR_FRAME_INTERVAL * 2;
+    // A pending IDR already covers this request (coalesced).
+    if (m_scheduled) {
+        return;
+    }
+
+    uint64_t now = m_clock();
+    m_insertIDRTime = m_hasLastIDR ? std::max(now, m_lastIDRTime + m_minIDRFrameInterval) : now;
     m_scheduled = true;
 }
 
@@ -37,8 +45,11 @@ bool IDRScheduler::CheckIDRInsertion() {
     std::unique_lock lock(m_mutex);
 
     if (m_scheduled) {
-        if (m_insertIDRTime <= m_clock()) {
+        uint64_t now = m_clock();
+        if (m_insertIDRTime <= now) {
             m_scheduled = false;
+            m_hasLastIDR = true;
+            m_lastIDRTime = now;
             return true;
         }
     }
