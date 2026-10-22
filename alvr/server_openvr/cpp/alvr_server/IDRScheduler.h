@@ -1,12 +1,16 @@
 #pragma once
 
+#ifndef IDR_SCHEDULER_STANDALONE
 #include "Settings.h"
+#endif
+#include <functional>
 #include <mutex>
 #include <stdint.h>
 
 class IDRScheduler {
 public:
-    IDRScheduler();
+    // The clock returns microseconds; it defaults to GetTimestampUs.
+    explicit IDRScheduler(std::function<uint64_t()> clock = nullptr);
     ~IDRScheduler();
 
     void OnPacketLoss();
@@ -16,8 +20,11 @@ public:
 
     bool CheckIDRInsertion();
 
+    void SetMinIntervalUs(uint64_t minIntervalUs) { m_minIDRFrameInterval = minIntervalUs; }
+
 private:
     static const int MIN_IDR_FRAME_INTERVAL = 100 * 1000; // 100-milliseconds
+    std::function<uint64_t()> m_clock;
     uint64_t m_insertIDRTime = 0;
     bool m_scheduled = false;
     std::mutex m_mutex;
