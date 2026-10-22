@@ -100,6 +100,9 @@ private:
             OK_OR_THROW(frame->SetSize(width, im.desc.Height), "Chart dump size");
             WICPixelFormatGUID format = GUID_WICPixelFormat32bppRGBA;
             OK_OR_THROW(frame->SetPixelFormat(&format), "Chart dump RGBA");
+            // The PNG encoder may substitute BGRA (m6 chart-L.png read red for the blue left eye).
+            if (eye == 0 && format == GUID_WICPixelFormat32bppBGRA)
+                for (size_t i = 0; i + 2 < im.bytes.size(); i += 4) std::swap(im.bytes[i], im.bytes[i + 2]);
             OK_OR_THROW(frame->WritePixels(im.desc.Height, stride,
                         UINT(im.bytes.size() - eye * width * 4), im.bytes.data() + eye * width * 4), "Chart dump pixels");
             OK_OR_THROW(frame->Commit(), "Chart dump commit");

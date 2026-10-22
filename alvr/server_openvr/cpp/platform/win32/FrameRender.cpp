@@ -1,7 +1,9 @@
 #include "FrameRender.h"
 #include "angle_chart_shader.h"
+#include "alvr_server/shader/AngleChartColor.h"
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include "alvr_server/Logger.h"
 #include "alvr_server/Settings.h"
 #include "alvr_server/Utils.h"
@@ -979,12 +981,18 @@ void FrameRender::RenderAngleChart() {
         std::ifstream flag(std::filesystem::path(g_sessionPath).parent_path() / "angle_chart.enable");
         const bool enabled = flag.good();
         if (enabled != m_chartEnabled) {
-            std::string command;
+            std::string command, word;
             flag >> command;
-            m_chartDump.armed = enabled && command == "dump";
+            bool dump = false, stress = false;
+            for (std::istringstream words(command); std::getline(words, word, ',');) {
+                dump = dump || word == "dump";
+                stress = stress || word == "stress";
+            }
+            m_chartDump.armed = enabled && dump;
+            m_chartStress = enabled && stress;
             m_chartEnabled = enabled;
             m_chartDirty = true;
-            Info("angle_chart enabled=%d", enabled);
+            Info("angle_chart enabled=%d stress=%d", enabled, m_chartStress);
         }
     }
     if (!m_chartEnabled) return;
@@ -997,12 +1005,16 @@ void FrameRender::RenderAngleChart() {
                     nullptr, &m_chartVS), "Angle chart vertex shader");
     }
     if (m_chartDirty) {
-        struct Chart { float tangents[2][4]; float size[4]; } chart {};
+        auto& chart = m_chart;
         chart.size[0] = m_viewportL.Width;
         chart.size[1] = m_viewportL.Height;
         uint32_t codedW, codedH;
         GetEncodingResolution(&codedW, &codedH);
         const auto& s = Settings::Instance();
+        // Colours are display-referred SDR; encode them like FrameRender.fx leaves normal frames.
+        chart.encode[0] = float(s.m_hdrPq ? ANGLE_CHART_PQ : s.m_enableHdr ? ANGLE_CHART_HDR : ANGLE_CHART_SDR);
+        chart.encode[1] = float(1.0 / s.m_encodingGamma);
+        chart.encode[2] = m_chartStress ? 1.f : 0.f;
         for (int eye = 0; eye < 2; ++eye) {
             const auto& p = m_viewProj[eye];
             auto& t = chart.tangents[eye];
@@ -1015,8 +1027,13 @@ void FrameRender::RenderAngleChart() {
                  s.m_foveationCenterShiftX, s.m_foveationCenterShiftY,
                  s.m_foveationEdgeRatioX, s.m_foveationEdgeRatioY, codedW, codedH);
         }
-        m_chartBuffer.Attach(CreateBuffer(device, chart));
+        Info("angle_chart encode mode=%.0f invGamma=%.9g stress=%d", chart.encode[0], chart.encode[1],
+             m_chartStress);
+        m_chartBuffer.Attach(CreateBuffer(device, chart, D3D11_USAGE_DEFAULT));
         m_chartDirty = false;
+    } else if (m_chartStress) {
+        m_chart.encode[3] = float((unsigned(m_chart.encode[3]) + 1) & 0xffffff); // exact in float
+        UpdateBuffer(context, m_chartBuffer.Get(), &m_chart);
     }
     context->OMSetRenderTargets(1, m_pRenderTargetView.GetAddressOf(), nullptr);
     context->OMSetBlendState(nullptr, nullptr, 0xffffffff);
