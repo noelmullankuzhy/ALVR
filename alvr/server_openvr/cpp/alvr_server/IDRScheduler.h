@@ -9,7 +9,7 @@
 
 class IDRScheduler {
 public:
-    // The clock returns microseconds; it defaults to GetTimestampUs.
+    // The clock returns microseconds; it defaults to a steady (monotonic) clock.
     explicit IDRScheduler(std::function<uint64_t()> clock = nullptr);
     ~IDRScheduler();
 
@@ -23,6 +23,8 @@ public:
     void SetMinIntervalUs(uint64_t minIntervalUs) { m_minIDRFrameInterval = minIntervalUs; }
 
 private:
+    void ScheduleLocked();
+
     static const int MIN_IDR_FRAME_INTERVAL = 100 * 1000; // 100-milliseconds
     std::function<uint64_t()> m_clock;
     uint64_t m_insertIDRTime = 0;
