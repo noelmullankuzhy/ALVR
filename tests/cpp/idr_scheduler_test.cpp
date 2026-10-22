@@ -82,12 +82,28 @@ static void test_restart_resets_interval() {
     CHECK(s.CheckIDRInsertion());
 }
 
+static void test_clock_stepping_backwards() {
+    IDRScheduler s([] { return g_now; });
+    configure(s);
+    s.OnStreamStart();
+    CHECK(s.CheckIDRInsertion());
+    g_now -= 500 * MS; // wall clock steps back 500 ms
+    s.InsertIDR();
+    CHECK(s.CheckIDRInsertion()); // must not wait for the old timeline
+    g_now += 10 * MS;
+    s.InsertIDR();
+    CHECK(!s.CheckIDRInsertion()); // interval is measured from the new timeline
+    g_now += 90 * MS;
+    CHECK(s.CheckIDRInsertion());
+}
+
 int main() {
     test_start_fires_on_next_frame();
     test_first_request_after_quiet_fires_immediately();
     test_burst_coalesces_to_boundary();
     test_interval_restarts_after_boundary_idr();
     test_restart_resets_interval();
+    test_clock_stepping_backwards();
     std::printf(g_failures ? "FAILED (%d)\n" : "OK\n", g_failures);
     return g_failures ? 1 : 0;
 }
