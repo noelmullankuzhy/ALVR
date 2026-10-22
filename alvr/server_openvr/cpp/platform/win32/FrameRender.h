@@ -101,7 +101,8 @@ private:
     ComPtr<ID3D11PixelShader> m_chartPS;
     ComPtr<ID3D11Buffer> m_chartBuffer;
     std::chrono::steady_clock::time_point m_chartPoll {};
-    bool m_chartEnabled = false, m_chartDirty = true;
+    struct AngleChartParams { float tangents[2][4]; float size[4]; float encode[4]; } m_chart {};
+    bool m_chartEnabled = false, m_chartDirty = true, m_chartStress = false;
     ComPtr<ID3D11Texture2D> m_chartInput;
     AngleChartDump m_chartDump;
     void RenderAngleChart();
