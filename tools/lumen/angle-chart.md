@@ -7,8 +7,8 @@ The path is derived from `g_sessionPath`, not the working directory. For a build
 package it is `<package>\angle_chart.enable` (beside `<package>\session.json`).
 
 The pass writes before colour correction, FFR and YUV conversion. Its colours are
-display-referred linear SDR, encoded with the transfer the composition texture holds
-in the active mode (SDR, legacy HDR, or PQ); see
+display-referred linear SDR, encoded so the client's fixed decode for the active
+mode (SDR, legacy HDR, or PQ) returns them; see
 [the colour path](../../docs/lumen/angle-chart-color.md).
 It uses the same locked view-projection tangents as that frame's composition:
 client view config → Hmd::SetViewsConfig → CEncoder → FrameRender. No pose is used.

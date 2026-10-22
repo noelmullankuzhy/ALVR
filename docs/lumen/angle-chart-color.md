@@ -13,23 +13,25 @@ capture, all 10 points) and `proof-v2/SUMMARY.md`. Server develop `b1a60783`, cl
 
 | Stage | Format / transfer | What the normal (game) path puts there |
 |---|---|---|
-| Composition texture (chart pass target) | `R16G16B16A16_FLOAT` (`m_enableHdr`), not linear | `FrameRender.fx`: `sRGB_OETF(linear^(1/encoding_gamma))`, i.e. **encoded codes** |
+| Composition texture (chart pass target) | `R16G16B16A16_FLOAT` (`m_enableHdr`) | `FrameRender.fx`: `linear^(1/encoding_gamma)`, then the sRGB OETF only for sRGB-format game textures or with `force_hdr_srgb_correction` (`inputColorAdjust=1`); other float sources get the gamma only |
 | Colour correction, FFR | same float format | unchanged codes (clamp 0..1) |
 | `rgbtoyuv420.hlsl` → P010 | BT.2020 matrix, full range, 10-bit; **no transfer applied** | codes → Y'CbCr |
 | Client decode (`VideoColour.h` SDR branch) | `yuvToRGB` → sRGB EOTF → `^encoding_gamma` | back to linear |
 | Client output | BT.2020 → BT.709 matrix into the linear `rgba16Float` drawable | |
 | Capture PNG | sRGB-encoded drawable | |
 
-The chart wrote its spec colours (linear 0.06/0.12) straight into that texture, so they were treated as
-**encoded codes** and decoded twice: `client linear = sRGB_EOTF(0.12)^1.5 = 0.00155` instead of 0.12.
+Whatever the game source, the client decode is fixed: every value in that texture is treated as an
+**encoded code** (sRGB EOTF, then `^encoding_gamma`). The chart wrote its spec colours (linear 0.06/0.12)
+straight in, so they were decoded as codes: `client linear = sRGB_EOTF(0.12)^1.5 = 0.00155` instead of 0.12.
+The chart encode therefore targets the client's decode, not the game texture's format.
 
-Other server modes (the composition texture holds something different in each, so one fixed linear value is wrong in two of three):
+Per server mode (one fixed linear value is wrong in two of three):
 
-| Mode | Composition texture holds | Chart must write |
+| Mode | Downstream of the chart pass, up to the client's linear output | Chart must write |
 |---|---|---|
-| SDR (`R8G8B8A8_UNORM_SRGB`, or float + `sdr_p010`) | `linear^(1/γ)`; the sRGB view or `sdr_p010` applies the sRGB transfer once | `linear^(1/γ)` |
-| Legacy HDR (`enable_hdr`, PQ off), **m6** | `sRGB_OETF(linear^(1/γ))` | same |
-| HDR10 PQ (`hdr_transfer` PQ) | scene-linear, 1.0 = reference white; `pq_p010` applies white and ST 2084 | `linear` |
+| SDR (`R8G8B8A8_UNORM_SRGB`, or float + `sdr_p010`) | the sRGB view or `sdr_p010` applies the sRGB OETF once; client sRGB EOTF, `^γ` | `linear^(1/γ)` |
+| Legacy HDR (`enable_hdr`, PQ off), **m6** | no transfer on the server; client sRGB EOTF, `^γ` | `sRGB_OETF(linear^(1/γ))` |
+| HDR10 PQ (`hdr_transfer` PQ) | `pq_p010` applies reference white and ST 2084; client PQ EOTF, `/white` | `linear` (1.0 = reference white) |
 
 ## Predicted vs measured (left eye, background (0.06, 0.06, 0.12))
 
