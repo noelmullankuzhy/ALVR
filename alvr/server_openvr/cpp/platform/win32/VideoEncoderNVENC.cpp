@@ -5,6 +5,31 @@
 #include "alvr_server/Settings.h"
 #include "alvr_server/Utils.h"
 
+// NV_ENC_CAPS_NUM_ENCODER_ENGINES and NV_ENC_INITIALIZE_PARAMS::splitEncodeMode need API 12.1;
+// NvEncoder::LoadNvEncApi already refuses drivers older than the bundled header.
+static_assert(
+    NVENCAPI_MAJOR_VERSION > 12 || (NVENCAPI_MAJOR_VERSION == 12 && NVENCAPI_MINOR_VERSION >= 1),
+    "NVENC split encoding needs API 12.1"
+);
+
+// alvr_session NvencSplitEncodeMode::TwoIfAvailable; not an NV_ENC_SPLIT_ENCODE_MODE value.
+static const uint32_t SPLIT_TWO_IF_AVAILABLE = 16;
+
+static const char* SplitModeName(uint32_t mode) {
+    switch (mode) {
+    case NV_ENC_SPLIT_AUTO_MODE:
+        return "Auto";
+    case NV_ENC_SPLIT_TWO_FORCED_MODE:
+        return "ForceTwo";
+    case NV_ENC_SPLIT_DISABLE_MODE:
+        return "Disabled";
+    case SPLIT_TWO_IF_AVAILABLE:
+        return "TwoIfAvailable";
+    default:
+        return "Other";
+    }
+}
+
 static void Validate10bitInput(ID3D11Texture2D* texture) {
     if (Settings::Instance().m_use10bitEncoder
         && (!Settings::Instance().m_enableHdr || Settings::Instance().m_hdrPq)) {
@@ -56,6 +81,14 @@ void VideoEncoderNVENC::Initialize() {
         );
     }
 
+    // The session is open (NvEncoder constructor), so caps can be queried before CreateEncoder.
+    GUID codecGuid = m_codec == ALVR_CODEC_AV1 ? NV_ENC_CODEC_AV1_GUID
+        : m_codec == ALVR_CODEC_HEVC           ? NV_ENC_CODEC_HEVC_GUID
+                                               : NV_ENC_CODEC_H264_GUID;
+    m_nvencEngineCount
+        = m_NvNecoder->GetCapabilityValue(codecGuid, NV_ENC_CAPS_NUM_ENCODER_ENGINES);
+    Info("NVENC engines: %d (NV_ENC_CAPS_NUM_ENCODER_ENGINES)\n", m_nvencEngineCount);
+
     NV_ENC_INITIALIZE_PARAMS initializeParams = { NV_ENC_INITIALIZE_PARAMS_VER };
     NV_ENC_CONFIG encodeConfig = { NV_ENC_CONFIG_VER };
     initializeParams.encodeConfig = &encodeConfig;
@@ -67,16 +100,18 @@ void VideoEncoderNVENC::Initialize() {
         m_renderHeight,
         m_bitrateInMBits * 1'000'000L
     );
-    const char* splitMode = "Auto";
-    switch (initializeParams.splitEncodeMode) {
-    case NV_ENC_SPLIT_TWO_FORCED_MODE: splitMode = "ForceTwo"; break;
-    case NV_ENC_SPLIT_DISABLE_MODE: splitMode = "Disabled"; break;
-    }
     Info(
-        "NVENC API %u.%u: split requested=%s, preset=P%u, tuning=%u, coded=%ux%u, codec=%d\n",
-        NVENCAPI_MAJOR_VERSION, NVENCAPI_MINOR_VERSION, splitMode,
-        Settings::Instance().m_nvencQualityPreset, initializeParams.tuningInfo,
-        initializeParams.encodeWidth, initializeParams.encodeHeight, m_codec
+        "NVENC API %u.%u: split setting=%s requested=%s, preset=P%u, tuning=%u, coded=%ux%u, "
+        "codec=%d\n",
+        NVENCAPI_MAJOR_VERSION,
+        NVENCAPI_MINOR_VERSION,
+        SplitModeName(Settings::Instance().m_nvencSplitEncodeMode),
+        SplitModeName(initializeParams.splitEncodeMode),
+        Settings::Instance().m_nvencQualityPreset,
+        initializeParams.tuningInfo,
+        initializeParams.encodeWidth,
+        initializeParams.encodeHeight,
+        m_codec
     );
     try {
         m_NvNecoder->CreateEncoder(&initializeParams);
@@ -88,6 +123,22 @@ void VideoEncoderNVENC::Initialize() {
         }
         throw MakeException("NvEnc CreateEncoder failed. Code=%d %hs", e.getErrorCode(), e.what());
     }
+
+    // API 12.1 has no read-back of the split actually used, so derive it from the engine count
+    // and the NV_ENC_SPLIT_ENCODE_MODE rules in nvEncodeAPI.h.
+    const char* splitGranted = "driver choice (not reported)";
+    if (m_codec == ALVR_CODEC_H264) {
+        splitGranted = "none (H.264)";
+    } else if (initializeParams.splitEncodeMode == NV_ENC_SPLIT_TWO_FORCED_MODE) {
+        splitGranted = m_nvencEngineCount >= 2 ? "two strips" : "one strip (one engine)";
+    } else if (initializeParams.splitEncodeMode == NV_ENC_SPLIT_DISABLE_MODE) {
+        splitGranted = "none";
+    }
+    Info(
+        "NVENC split granted=%s (derived from engines=%d; API has no read-back)\n",
+        splitGranted,
+        m_nvencEngineCount
+    );
 
     Debug("CNvEncoder is successfully initialized.\n");
 }
@@ -149,7 +200,15 @@ void VideoEncoderNVENC::Transmit(
         Debug("Inserting IDR frame.\n");
         picParams.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR;
     }
+    // Synchronous encode: nvEncEncodePicture, completion wait and nvEncLockBitstream copy-out.
+    // Excludes the network push in ParseFrameNals below.
+    auto encodeStart = std::chrono::steady_clock::now();
     m_NvNecoder->EncodeFrame(vPacket, &picParams);
+    auto encodeNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now() - encodeStart
+    )
+                        .count();
+    ReportNvencEncoded(targetTimestampNs, encodeNs);
 
     for (std::vector<uint8_t>& packet : vPacket) {
         uint8_t* buf = packet.data();
@@ -250,7 +309,15 @@ void VideoEncoderNVENC::FillEncodeConfig(
 
     initializeParams.enableWeightedPrediction
         = Settings::Instance().m_nvencEnableWeightedPrediction;
-    initializeParams.splitEncodeMode = Settings::Instance().m_nvencSplitEncodeMode;
+    uint32_t splitEncodeMode = Settings::Instance().m_nvencSplitEncodeMode;
+    if (splitEncodeMode == SPLIT_TWO_IF_AVAILABLE) {
+        // Split encoding is not applicable to H264 (NV_ENC_SPLIT_ENCODE_MODE).
+        splitEncodeMode
+            = m_nvencEngineCount >= 2 && (m_codec == ALVR_CODEC_HEVC || m_codec == ALVR_CODEC_AV1)
+            ? NV_ENC_SPLIT_TWO_FORCED_MODE
+            : NV_ENC_SPLIT_DISABLE_MODE;
+    }
+    initializeParams.splitEncodeMode = splitEncodeMode;
     if (initializeParams.splitEncodeMode == NV_ENC_SPLIT_TWO_FORCED_MODE) {
         // Keep split blockers off for initialization and bitrate reconfiguration alike.
         initializeParams.enableWeightedPrediction = 0;

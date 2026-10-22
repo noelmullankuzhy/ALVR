@@ -476,6 +476,14 @@ impl ServerCoreContext {
         }
     }
 
+    pub fn report_nvenc_encoded(&self, target_timestamp: Duration, duration: Duration) {
+        dbg_server_core!("report_nvenc_encoded");
+
+        if let Some(stats) = &mut *self.connection_context.statistics_manager.write() {
+            stats.report_frame_nvenc_encoded(target_timestamp, duration);
+        }
+    }
+
     pub fn report_present(&self, target_timestamp: Duration, offset: Duration) {
         dbg_server_core!("report_present");
 

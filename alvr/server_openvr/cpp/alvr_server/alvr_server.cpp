@@ -215,6 +215,7 @@ void (*ShutdownRuntime)();
 unsigned long long (*PathStringToHash)(const char* path);
 void (*ReportPresent)(unsigned long long timestamp_ns, unsigned long long offset_ns);
 void (*ReportComposed)(unsigned long long timestamp_ns, unsigned long long offset_ns);
+void (*ReportNvencEncoded)(unsigned long long timestamp_ns, unsigned long long duration_ns);
 FfiDynamicEncoderParams (*GetDynamicEncoderParams)();
 unsigned long long (*GetSerialNumber)(unsigned long long deviceID, char* outString);
 void (*SetOpenvrProps)(void* instancePtr, unsigned long long deviceID);

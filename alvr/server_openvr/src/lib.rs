@@ -366,6 +366,15 @@ extern "C" fn report_composed(timestamp_ns: u64, offset_ns: u64) {
     }
 }
 
+extern "C" fn report_nvenc_encoded(timestamp_ns: u64, duration_ns: u64) {
+    if let Some(context) = &*SERVER_CORE_CONTEXT.read() {
+        context.report_nvenc_encoded(
+            Duration::from_nanos(timestamp_ns),
+            Duration::from_nanos(duration_ns),
+        );
+    }
+}
+
 extern "C" fn report_present(timestamp_ns: u64, offset_ns: u64) {
     if let Some(context) = &*SERVER_CORE_CONTEXT.read() {
         context.report_present(
@@ -481,6 +490,7 @@ pub unsafe extern "C" fn HmdDriverFactory(
             VideoSend = Some(send_video);
             GetDynamicEncoderParams = Some(get_dynamic_encoder_params);
             ReportComposed = Some(report_composed);
+            ReportNvencEncoded = Some(report_nvenc_encoded);
             ReportPresent = Some(report_present);
             WaitForVSync = Some(wait_for_vsync);
             ShutdownRuntime = Some(shutdown_driver);

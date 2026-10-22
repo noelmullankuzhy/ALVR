@@ -13,6 +13,9 @@ pub struct StatisticsSummary {
     pub total_latency_ms: f32,
     pub network_latency_ms: f32,
     pub encode_latency_ms: f32,
+    // NVENC EncodeFrame and bitstream lock only; None for other encoders.
+    #[serde(default)]
+    pub encode_nvenc_ms: Option<f32>,
     pub decode_latency_ms: f32,
     pub packets_lost_total: usize,
     pub packets_lost_per_sec: usize,
@@ -40,6 +43,9 @@ pub struct GraphStatistics {
     pub game_time_s: f32,
     pub server_compositor_s: f32,
     pub encoder_s: f32,
+    // Part of encoder_s, so not stacked in the latency graph.
+    #[serde(default)]
+    pub encoder_nvenc_s: Option<f32>,
     pub network_s: f32,
     pub decoder_s: f32,
     pub decoder_queue_s: f32,
@@ -146,4 +152,30 @@ impl Event {
 
 pub fn send_event(event_type: EventType) {
     info!("{}", serde_json::to_string(&event_type).unwrap());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nvenc_encode_fields_are_optional() {
+        let summary = StatisticsSummary {
+            encode_latency_ms: 9.0,
+            encode_nvenc_ms: Some(4.25),
+            ..Default::default()
+        };
+        let mut json = serde_json::to_value(&summary).unwrap();
+        assert_eq!(json["encode_nvenc_ms"], serde_json::json!(4.25));
+
+        json.as_object_mut().unwrap().remove("encode_nvenc_ms");
+        let old: StatisticsSummary = serde_json::from_value(json).unwrap();
+        assert_eq!(old.encode_nvenc_ms, None);
+
+        let mut json = serde_json::to_value(GraphStatistics::default()).unwrap();
+        assert!(json["encoder_nvenc_s"].is_null());
+        json.as_object_mut().unwrap().remove("encoder_nvenc_s");
+        let old: GraphStatistics = serde_json::from_value(json).unwrap();
+        assert_eq!(old.encoder_nvenc_s, None);
+    }
 }

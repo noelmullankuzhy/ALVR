@@ -664,14 +664,20 @@ mod tests {
     }
 
     #[test]
-    fn nvenc_split_defaults_to_auto_in_old_settings() {
+    fn nvenc_split_defaults_to_two_if_available() {
         let settings = SessionConfig::default().to_settings();
         let nvenc = settings.video.encoder_config.nvenc;
-        assert_eq!(nvenc.split_encode_mode, NvencSplitEncodeMode::Auto);
+        assert_eq!(
+            nvenc.split_encode_mode,
+            NvencSplitEncodeMode::TwoIfAvailable
+        );
         let mut old = json::to_value(nvenc).unwrap();
         old.as_object_mut().unwrap().remove("split_encode_mode");
         let restored: NvencConfig = json::from_value(old).unwrap();
-        assert_eq!(restored.split_encode_mode, NvencSplitEncodeMode::Auto);
+        assert_eq!(
+            restored.split_encode_mode,
+            NvencSplitEncodeMode::TwoIfAvailable
+        );
     }
 
     #[test]
@@ -680,6 +686,8 @@ mod tests {
             (NvencSplitEncodeMode::Auto, "Auto", 0),
             (NvencSplitEncodeMode::ForceTwo, "ForceTwo", 2),
             (NvencSplitEncodeMode::Disabled, "Disabled", 15),
+            // Not an NVENC value: the server resolves it to ForceTwo or Disabled.
+            (NvencSplitEncodeMode::TwoIfAvailable, "TwoIfAvailable", 16),
         ] {
             assert_eq!(json::to_value(&mode).unwrap(), json::json!(name));
             let restored: NvencSplitEncodeMode = json::from_value(json::json!(name)).unwrap();
@@ -706,7 +714,7 @@ mod tests {
                 .encoder_config
                 .nvenc
                 .split_encode_mode,
-            NvencSplitEncodeMode::Auto
+            NvencSplitEncodeMode::TwoIfAvailable
         );
         let mut selected = json::to_value(&session).unwrap();
         selected["session_settings"]["video"]["encoder_config"]["nvenc"]["split_encode_mode"]
