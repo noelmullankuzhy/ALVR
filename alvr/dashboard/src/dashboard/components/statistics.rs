@@ -205,6 +205,9 @@ impl StatisticsTab {
                     label(ui, "Decode", stats.decoder_s, TRANSCODE);
                     label(ui, "Network", stats.network_s, NETWORK);
                     label(ui, "Encode", stats.encoder_s, TRANSCODE);
+                    if let Some(nvenc_s) = stats.encoder_nvenc_s {
+                        label(ui, "  of which NVENC", nvenc_s, TRANSCODE);
+                    }
                     label(ui, "Streamer Compositor", stats.server_compositor_s, RENDER);
                     label(
                         ui,
@@ -456,6 +459,11 @@ impl StatisticsTab {
 
             ui[0].label("Encoder latency:");
             ui[1].label(format!("{:.2} ms", statistics.encode_latency_ms));
+
+            if let Some(encode_nvenc_ms) = statistics.encode_nvenc_ms {
+                ui[0].label("NVENC encode:");
+                ui[1].label(format!("{encode_nvenc_ms:.2} ms"));
+            }
 
             ui[0].label("Transport latency:");
             ui[1].label(format!("{:.2} ms", statistics.network_latency_ms));

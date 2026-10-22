@@ -42,4 +42,6 @@ private:
     int m_renderWidth;
     int m_renderHeight;
     int m_bitrateInMBits;
+    // NV_ENC_CAPS_NUM_ENCODER_ENGINES, queried once after the session opens.
+    int m_nvencEngineCount = 0;
 };

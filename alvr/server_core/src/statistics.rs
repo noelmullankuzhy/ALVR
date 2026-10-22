@@ -15,6 +15,7 @@ pub struct HistoryFrame {
     frame_present: Instant,
     frame_composed: Instant,
     frame_encoded: Instant,
+    nvenc_encode: Option<Duration>,
     video_packet_bytes: usize,
     total_pipeline_latency: Duration,
 }
@@ -28,6 +29,7 @@ impl Default for HistoryFrame {
             frame_present: now,
             frame_composed: now,
             frame_encoded: now,
+            nvenc_encode: None,
             video_packet_bytes: 0,
             total_pipeline_latency: Duration::ZERO,
         }
@@ -165,6 +167,17 @@ impl StatisticsManager {
         }
     }
 
+    // Wall-clock time of the synchronous NVENC encode and bitstream lock, measured by the encoder
+    pub fn report_frame_nvenc_encoded(&mut self, target_timestamp: Duration, duration: Duration) {
+        if let Some(frame) = self
+            .history_buffer
+            .iter_mut()
+            .find(|frame| frame.target_timestamp == target_timestamp)
+        {
+            frame.nvenc_encode = Some(duration);
+        }
+    }
+
     pub fn report_packet_loss(&mut self) {
         self.packets_lost_total += 1;
         self.packets_lost_partial_sum += 1;
@@ -243,6 +256,7 @@ impl StatisticsManager {
                     total_latency_ms: client_stats.total_pipeline_latency.as_secs_f32() * 1000.,
                     network_latency_ms: network_latency.as_secs_f32() * 1000.,
                     encode_latency_ms: encoder_latency.as_secs_f32() * 1000.,
+                    encode_nvenc_ms: frame.nvenc_encode.map(|d| d.as_secs_f32() * 1000.),
                     decode_latency_ms: client_stats.video_decode.as_secs_f32() * 1000.,
                     packets_lost_total: self.packets_lost_total,
                     packets_lost_per_sec: (self.packets_lost_partial_sum as f32 / interval_secs)
@@ -282,6 +296,7 @@ impl StatisticsManager {
                 game_time_s: game_time_latency.as_secs_f32(),
                 server_compositor_s: server_compositor_latency.as_secs_f32(),
                 encoder_s: encoder_latency.as_secs_f32(),
+                encoder_nvenc_s: frame.nvenc_encode.map(|d| d.as_secs_f32()),
                 network_s: network_latency.as_secs_f32(),
                 decoder_s: client_stats.video_decode.as_secs_f32(),
                 decoder_queue_s: client_stats.video_decoder_queue.as_secs_f32(),
@@ -319,5 +334,27 @@ impl StatisticsManager {
         }
 
         (self.last_vsync_time + self.frame_interval).saturating_duration_since(now)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nvenc_encode_time_is_kept_per_frame() {
+        let mut stats = StatisticsManager::new(4, Duration::from_millis(11), 1.0);
+        let target = Duration::from_millis(100);
+        stats.report_tracking_received(target);
+        assert_eq!(stats.history_buffer[0].nvenc_encode, None);
+
+        stats.report_frame_nvenc_encoded(target, Duration::from_micros(4200));
+        stats.report_frame_nvenc_encoded(Duration::from_millis(999), Duration::from_secs(1));
+
+        assert_eq!(stats.history_buffer.len(), 1);
+        assert_eq!(
+            stats.history_buffer[0].nvenc_encode,
+            Some(Duration::from_micros(4200))
+        );
     }
 }
