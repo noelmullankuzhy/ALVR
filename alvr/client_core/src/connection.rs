@@ -352,7 +352,7 @@ fn connection_pipeline(
                         if let Some(sender) = &mut *ctx.control_sender.lock() {
                             sender.send(&ClientControlPacket::RequestIdr).ok();
                         }
-                        warn!("Dropped video packet. Reason: Decoder saturation")
+                        warn!("Dropped video packet. Reason: Decoder rejected frame")
                     }
                 } else {
                     if let Some(sender) = &mut *ctx.control_sender.lock() {
